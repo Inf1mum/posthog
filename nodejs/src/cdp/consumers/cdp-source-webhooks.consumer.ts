@@ -9,7 +9,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { Committed, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
+import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
@@ -375,7 +375,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
 
                 if (scopedIdempotencyKey) {
-                    if ((await this.recallQuietly(run, hogFlow)).status !== 'absent') {
+                    const recalled = await this.recallQuietly({ runId: invocationId, fingerprint: hogFlow.id }, hogFlow)
+                    if (recalled.status !== 'absent') {
                         return answerDuplicate()
                     }
                     const reservation = await this.idempotencyKeys.reserve(
@@ -412,12 +413,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     throw error
                 }
                 if (scopedIdempotencyKey) {
-                    // Another request with the key claimed the run first. The fingerprint is the workflow, so a
-                    // claim of this id can't hold another request.
-                    if (committed.outcome !== 'created') {
-                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, leaseToken)
-                        return answerDuplicate()
-                    }
+                    // Recorded in Valkey even when another request with the key claimed the run first, because an
+                    // older pod reads only Valkey and would queue a second run. The fingerprint is the workflow, so
+                    // a claim of this id can't hold another request.
                     await this.idempotencyKeys.markQueued(
                         hogFlow.team_id,
                         scopedIdempotencyKey,
@@ -425,6 +423,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                         invocationId,
                         leaseToken
                     )
+                }
+                if (committed.outcome !== 'created') {
+                    return answerDuplicate()
                 }
                 addMetric({
                     metric_kind: 'other',
@@ -469,9 +470,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     }
 
     // The claim made at launch still deduplicates the run, so a failed lookup only costs an earlier answer.
-    private async recallQuietly(run: Run, hogFlow: HogFlow): Promise<Recalled> {
+    private async recallQuietly(claim: Claim, hogFlow: HogFlow): Promise<Recalled> {
         try {
-            return await this.runIntake.recall(run)
+            return await this.runIntake.recall(claim)
         } catch (error) {
             logger.warn('Hog flow run claim lookup failed, deduplicating at launch instead', {
                 team_id: hogFlow.team_id,

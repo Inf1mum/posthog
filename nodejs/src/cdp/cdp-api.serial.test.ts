@@ -2643,17 +2643,32 @@ describe('CDP API', () => {
                     expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
                 })
 
-                it('replays a retry from the cyclotron database before refusals, once Valkey has lost the send', async () => {
-                    const sent = await sendKeyed()
-                    await forgetValkeyRecord(keyed.idempotency_key as string)
-                    jest.spyOn(api['emailSuppressionService'], 'isKnownSuppressed').mockResolvedValue(true)
+                it.each([
+                    [
+                        'its recipient is now suppressed',
+                        () => jest.spyOn(api['emailSuppressionService'], 'isKnownSuppressed').mockResolvedValue(true),
+                    ],
+                    [
+                        'its workflow is gone',
+                        () =>
+                            jest
+                                .spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss')
+                                .mockResolvedValue(null),
+                    ],
+                ])(
+                    'replays a retry from the cyclotron database once Valkey has lost the send, when %s',
+                    async (_, refuse) => {
+                        const sent = await sendKeyed()
+                        await forgetValkeyRecord(keyed.idempotency_key as string)
+                        refuse()
 
-                    const retry = await sendKeyed()
+                        const retry = await sendKeyed()
 
-                    expect(retry.status).toEqual(202)
-                    expect(retry.body).toEqual({ ...sent.body, replayed: true })
-                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
-                })
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                        expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    }
+                )
 
                 it('rejects a reused key from the cyclotron database once Valkey has lost the send', async () => {
                     await sendKeyed()
@@ -3355,12 +3370,27 @@ describe('CDP API', () => {
             it('refuses files from a team off the allowlist before it reserves the key, and queues nothing', async () => {
                 const offTheList = await servedForOneTest({ CDP_EMAIL_ATTACHMENTS_TEAMS: `${team.id + 1}` })
                 const stagesBefore = await stageCounts()
+                const key = newKey()
 
-                const res = await sendWithFiles(newKey(), [reference(invoice)], { app: offTheList })
+                const res = await sendWithFiles(key, [reference(invoice)], { app: offTheList })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'field_not_accepted' })
-                expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({ auth: 1, validate: 1, total: 1 })
+                // The claim lookup runs first, so a retry of a queued send replays even after its team leaves the list.
+                expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
+                    auth: 1,
+                    validate: 1,
+                    idempotency: 1,
+                    total: 1,
+                })
+                const reservation = await api['transactionalEmailIdempotencyKeys']['valkey']!.useClient(
+                    { name: 'test' },
+                    (client) =>
+                        client.get(
+                            `@posthog/idempotency/transactional-email/${team.id}/${createHash('sha256').update(key).digest('hex')}`
+                        )
+                )
+                expect(reservation).toBeNull()
                 expect(await queuedIds()).toEqual([])
             })
 

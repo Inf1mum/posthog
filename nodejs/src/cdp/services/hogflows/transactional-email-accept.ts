@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { z } from 'zod'
 
-import { Committed, Recalled, Run, RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
+import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { InvocationResultsService } from '~/cdp/services/invocation-results.service'
 import { GroupsManagerService, GroupsMap } from '~/cdp/services/managers/groups-manager.service'
@@ -227,6 +227,41 @@ export class TransactionalEmail {
         }
         const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey, send } = parsed.data
         const references = send?.attachments ?? []
+        const idempotencyKeys = this.deps.idempotencyKeys
+        const fingerprint = transactionalEmailFingerprint(hogFlowId, parsed.data, send)
+        // Recalled before any lookup can refuse the send, so a retry of a queued send replays even after its
+        // workflow changed. The run id and the fingerprint come from the request alone.
+        const claim: Claim | undefined = idempotencyKey
+            ? { runId: keyedRunId(teamId, RUN_SCOPE, idempotencyKey), fingerprint }
+            : undefined
+        if (claim && idempotencyKey) {
+            stages.start('idempotency')
+            let recalled: Recalled
+            try {
+                recalled = await this.deps.runIntake.recall(claim)
+            } catch (error) {
+                logger.error('🔑', 'Transactional email claim lookup failed', {
+                    error: error instanceof Error ? error.message : String(error),
+                })
+                return { kind: 'unavailable' }
+            }
+            switch (recalled.status) {
+                case 'replayed':
+                    return {
+                        kind: 'replayed',
+                        invocationId: recalled.runId,
+                        attachmentTotals:
+                            references.length > 0
+                                ? {
+                                      ...NO_ATTACHMENTS,
+                                      ...(await idempotencyKeys.queuedReplayFields(teamId, idempotencyKey)),
+                                  }
+                                : NO_ATTACHMENTS,
+                    }
+                case 'mismatch':
+                    return { kind: 'mismatch' }
+            }
+        }
         if (references.length > 0 && !this.deps.attachmentUploads.isAllowed(teamId)) {
             return refused('field_not_accepted', 400)
         }
@@ -290,12 +325,10 @@ export class TransactionalEmail {
         invocation.queue = 'email'
         invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
 
-        const idempotencyKeys = this.deps.idempotencyKeys
-        const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, send)
-        if (idempotencyKey) {
-            invocation.id = keyedRunId(team.id, RUN_SCOPE, idempotencyKey)
+        if (claim) {
+            invocation.id = claim.runId
         }
-        const run: Run = idempotencyKey ? { invocation, claim: { fingerprint } } : { invocation }
+        const run: Run = claim ? { invocation, claim: { fingerprint } } : { invocation }
         const leaseToken = randomUUID()
         const releaseKey = async () => {
             if (idempotencyKey) {
@@ -305,31 +338,6 @@ export class TransactionalEmail {
         }
         if (idempotencyKey) {
             stages.start('idempotency')
-            let recalled: Recalled
-            try {
-                recalled = await this.deps.runIntake.recall(run)
-            } catch (error) {
-                logger.error('🔑', 'Transactional email claim lookup failed', {
-                    error: error instanceof Error ? error.message : String(error),
-                })
-                return { kind: 'unavailable' }
-            }
-            switch (recalled.status) {
-                case 'replayed':
-                    return {
-                        kind: 'replayed',
-                        invocationId: recalled.runId,
-                        attachmentTotals:
-                            references.length > 0
-                                ? {
-                                      ...NO_ATTACHMENTS,
-                                      ...(await idempotencyKeys.queuedReplayFields(team.id, idempotencyKey)),
-                                  }
-                                : NO_ATTACHMENTS,
-                    }
-                case 'mismatch':
-                    return { kind: 'mismatch' }
-            }
             const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, leaseToken)
             switch (reservation.status) {
                 case 'replayed':
@@ -393,11 +401,22 @@ export class TransactionalEmail {
             throw error
         }
         // A request that found no claim lost a race to another with the same key, which queued the run.
+        if (committed.outcome === 'replayed' && idempotencyKey) {
+            // Recorded in Valkey as well, because an older pod reads only Valkey and would queue a second run.
+            stages.start('idempotency')
+            await idempotencyKeys.markQueued(
+                team.id,
+                idempotencyKey,
+                fingerprint,
+                committed.runId,
+                leaseToken,
+                attachmentTotals
+            )
+            return { kind: 'replayed', invocationId: committed.runId, attachmentTotals }
+        }
         if (committed.outcome !== 'created') {
             await releaseKey()
-            return committed.outcome === 'replayed'
-                ? { kind: 'replayed', invocationId: committed.runId, attachmentTotals }
-                : { kind: 'mismatch' }
+            return { kind: 'mismatch' }
         }
         cdpEmailQueuedTotal.labels(priorityClass).inc()
         if (idempotencyKey) {

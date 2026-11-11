@@ -11,6 +11,9 @@ export type Run = {
     claim?: { fingerprint: string }
 }
 
+// A keyed run's id and the fingerprint of the request that claims it.
+export type Claim = { runId: string; fingerprint: string }
+
 export type Recalled = { status: 'absent' } | { status: 'replayed' | 'mismatch'; runId: string }
 
 export type Committed = { runId: string; outcome: CyclotronV2IdempotentOutcome }
@@ -31,16 +34,12 @@ export const keyedRunId = (teamId: number, scope: string, key: string): string =
 export class RunIntake {
     constructor(private deps: RunIntakeDeps) {}
 
-    async recall(run: Run): Promise<Recalled> {
-        if (!run.claim) {
-            return { status: 'absent' }
-        }
-        const runId = run.invocation.id
+    async recall({ runId, fingerprint }: Claim): Promise<Recalled> {
         const stored = await this.deps.hogflowQueue.findIdempotencyKey(runId)
         if (!stored) {
             return { status: 'absent' }
         }
-        return { status: stored.fingerprint === run.claim.fingerprint ? 'replayed' : 'mismatch', runId }
+        return { status: stored.fingerprint === fingerprint ? 'replayed' : 'mismatch', runId }
     }
 
     // A keyed run claims its key in the job's own transaction, so a repeat creates no second job.
