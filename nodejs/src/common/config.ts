@@ -241,6 +241,11 @@ export type CommonConfig = BaseServerConfig & {
     // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
     // everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
+    // Pauses third-party requests to a destination IP address after many recent requests to it failed in a way that
+    // discards the connection. See IpCircuitBreaker.
+    EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED: boolean
+    EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES: number
+    EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS: number
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -281,6 +286,9 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECTIONS'
     | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
     | 'EXTERNAL_REQUEST_PROXY_TEAMS'
+    | 'EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED'
+    | 'EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES'
+    | 'EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -294,6 +302,13 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
         EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
         EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
+        EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED: process.env.EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED === 'true',
+        EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES: Number(
+            process.env.EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES ?? 20
+        ),
+        EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS: Number(
+            process.env.EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS ?? 30_000
+        ),
     }
 }
 
@@ -456,6 +471,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECTIONS: 500,
         EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
         EXTERNAL_REQUEST_PROXY_TEAMS: '',
+        EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED: false,
+        EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES: 20,
+        EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS: 30_000,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',
