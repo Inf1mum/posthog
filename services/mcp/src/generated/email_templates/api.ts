@@ -167,9 +167,9 @@ export const messagingTemplatesCreateBodyContentOnePushOneImageMax = 2000
 
 export const messagingTemplatesCreateBodyContentOnePushOneLinkMax = 2000
 
-export const messagingTemplatesCreateBodyContentOnePushOneDataMaxOne = 4000
-
 export const messagingTemplatesCreateBodyContentOnePushOneChannelsMax = 20
+
+export const messagingTemplatesCreateBodyContentOnePushOneDataMaxOne = 4000
 
 export const messagingTemplatesCreateBodyTypeMax = 24
 
@@ -309,6 +309,13 @@ export const MessagingTemplatesCreateBody = () => zod.strictObject({
                             .describe(
                                 'Where a tap should take the person, such as myapp:\/\/orders\/123 or a web URL. Sent to the app as the \"link\" key in the custom data. Supports Liquid templating.'
                             ),
+                        channels: zod
+                            .array(zod.number())
+                            .max(messagingTemplatesCreateBodyContentOnePushOneChannelsMax)
+                            .optional()
+                            .describe(
+                                "IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps."
+                            ),
                         data: zod
                             .record(
                                 zod.string(),
@@ -317,13 +324,6 @@ export const MessagingTemplatesCreateBody = () => zod.strictObject({
                             .optional()
                             .describe(
                                 'Custom key-value data delivered to the app. Values are strings and support Liquid templating.'
-                            ),
-                        channels: zod
-                            .array(zod.number())
-                            .max(messagingTemplatesCreateBodyContentOnePushOneChannelsMax)
-                            .optional()
-                            .describe(
-                                "IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps."
                             ),
                     }),
                     zod.null(),
@@ -388,9 +388,9 @@ export const messagingTemplatesPartialUpdateBodyContentOnePushOneImageMax = 2000
 
 export const messagingTemplatesPartialUpdateBodyContentOnePushOneLinkMax = 2000
 
-export const messagingTemplatesPartialUpdateBodyContentOnePushOneDataMaxOne = 4000
-
 export const messagingTemplatesPartialUpdateBodyContentOnePushOneChannelsMax = 20
+
+export const messagingTemplatesPartialUpdateBodyContentOnePushOneDataMaxOne = 4000
 
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
@@ -531,6 +531,13 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
                             .describe(
                                 'Where a tap should take the person, such as myapp:\/\/orders\/123 or a web URL. Sent to the app as the \"link\" key in the custom data. Supports Liquid templating.'
                             ),
+                        channels: zod
+                            .array(zod.number())
+                            .max(messagingTemplatesPartialUpdateBodyContentOnePushOneChannelsMax)
+                            .optional()
+                            .describe(
+                                "IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps."
+                            ),
                         data: zod
                             .record(
                                 zod.string(),
@@ -539,13 +546,6 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
                             .optional()
                             .describe(
                                 'Custom key-value data delivered to the app. Values are strings and support Liquid templating.'
-                            ),
-                        channels: zod
-                            .array(zod.number())
-                            .max(messagingTemplatesPartialUpdateBodyContentOnePushOneChannelsMax)
-                            .optional()
-                            .describe(
-                                "IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps."
                             ),
                     }),
                     zod.null(),
