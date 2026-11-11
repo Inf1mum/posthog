@@ -11,6 +11,7 @@ import pino from 'pino'
 import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
+import { version as uuidVersion } from 'uuid'
 
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
@@ -67,6 +68,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
 import {
     ATTACHMENT_LIFETIME_MS,
@@ -2361,7 +2363,7 @@ describe('CDP API', () => {
         beforeEach(async () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
-            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            api['hogflowQueue'] = Object.assign(createMockJobQueue(), { queueInvocations: mockQueueInvocations })
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
             // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
             jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
@@ -2593,6 +2595,110 @@ describe('CDP API', () => {
                 } finally {
                     api['transactionalEmailIdempotencyKeys'] = keys
                 }
+            })
+
+            describe('claimed in the cyclotron database', () => {
+                let queue: CyclotronJobQueuePostgresV2
+                let cyclotron: Pool
+
+                const valkeyKey = (key: string) =>
+                    `@posthog/idempotency/transactional-email/${team.id}/${createHash('sha256').update(key).digest('hex')}`
+                const valkey = () => api['transactionalEmailIdempotencyKeys']['valkey']!
+                // What a lost or expired Valkey record leaves: only the cyclotron database knows the send.
+                const forgetValkeyRecord = (key: string) =>
+                    valkey().useClient({ name: 'test' }, (client) => client.del(valkeyKey(key)))
+                const jobsOfFlow = async (): Promise<string[]> =>
+                    (
+                        await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                    ).rows.map((row) => row.id)
+                const claimFingerprint = async (id: string): Promise<string | undefined> =>
+                    (await cyclotron.query('SELECT fingerprint FROM cyclotron_idempotency_keys WHERE id = $1', [id]))
+                        .rows[0]?.fingerprint
+
+                beforeAll(async () => {
+                    queue = new CyclotronJobQueuePostgresV2(1, hub)
+                    await queue.startAsProducer()
+                    cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                })
+
+                afterAll(async () => {
+                    await queue.stopProducer()
+                    await cyclotron.end()
+                })
+
+                beforeEach(() => {
+                    api['hogflowQueue'] = queue
+                })
+
+                afterEach(async () => {
+                    await cyclotron.query('DELETE FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                })
+
+                it('claims a keyed send in the cyclotron database under an id derived from the key', async () => {
+                    const sent = await sendKeyed()
+
+                    expect(sent.status).toEqual(202)
+                    expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
+                })
+
+                it('replays a retry from the cyclotron database before refusals, once Valkey has lost the send', async () => {
+                    const sent = await sendKeyed()
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+                    jest.spyOn(api['emailSuppressionService'], 'isKnownSuppressed').mockResolvedValue(true)
+
+                    const retry = await sendKeyed()
+
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                })
+
+                it('rejects a reused key from the cyclotron database once Valkey has lost the send', async () => {
+                    await sendKeyed()
+                    await forgetValkeyRecord(keyed.idempotency_key as string)
+
+                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                    expect(await jobsOfFlow()).toHaveLength(1)
+                })
+
+                it('replays the id an older pod queued and recorded only in Valkey', async () => {
+                    const sent = await sendKeyed()
+                    const key = valkeyKey(keyed.idempotency_key as string)
+                    const legacyId = new UUIDT().toString()
+                    // An older pod kept no claim, and its record holds the random id it queued.
+                    await valkey().useClient({ name: 'test' }, async (client) => {
+                        const stored = parseJSON((await client.get(key))!)
+                        await client.set(key, JSON.stringify({ ...stored, invocationId: legacyId }), 'EX', 3600)
+                    })
+                    await cyclotron.query('DELETE FROM cyclotron_jobs WHERE id = $1', [sent.body.invocation_id])
+                    await cyclotron.query('DELETE FROM cyclotron_idempotency_keys WHERE id = $1', [
+                        sent.body.invocation_id,
+                    ])
+
+                    const retry = await sendKeyed()
+
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toMatchObject({ invocation_id: legacyId, replayed: true })
+                    expect(await jobsOfFlow()).toEqual([])
+                })
+
+                it('queues one job for two first requests with the same key', async () => {
+                    const responses = await Promise.all([sendKeyed(), sendKeyed()])
+
+                    const jobs = await jobsOfFlow()
+                    expect(jobs).toHaveLength(1)
+                    for (const res of responses) {
+                        expect([202, 409]).toContain(res.status)
+                        if (res.status === 202) {
+                            expect(res.body.invocation_id).toEqual(jobs[0])
+                        }
+                    }
+                })
             })
         })
 

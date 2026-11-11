@@ -479,6 +479,17 @@ export class CyclotronV2Manager {
         })
     }
 
+    /** The key's claim under the same rule that keeps it from being reclaimed: unexpired, or its job still exists. */
+    async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
+        const { rows } = await this.pool.query<{ fingerprint: string }>(
+            `SELECT fingerprint FROM cyclotron_idempotency_keys k
+             WHERE k.id = $1
+                 AND (k.expires_at > NOW() OR EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = k.id))`,
+            [id.toLowerCase()]
+        )
+        return rows[0] ?? null
+    }
+
     private insertJobRows(
         db: Pool | PoolClient,
         jobs: CyclotronV2JobInit[],

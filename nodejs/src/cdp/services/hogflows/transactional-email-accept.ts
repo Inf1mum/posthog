@@ -1,7 +1,8 @@
+import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { z } from 'zod'
 
-import { RunIntake } from '~/cdp/intake/run-intake'
+import { Committed, Recalled, Run, RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { InvocationResultsService } from '~/cdp/services/invocation-results.service'
 import { GroupsManagerService, GroupsMap } from '~/cdp/services/managers/groups-manager.service'
@@ -109,6 +110,8 @@ const sendRefused = ({ status, body }: SendRefusal): TransactionalEmailAcceptOut
     refused(body.error, status, body)
 
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
+
+const RUN_SCOPE = 'transactional-email'
 
 const emailRenderLimitExceeded = (emailStep: EmailStep): SendRefusal => ({
     status: 400,
@@ -289,15 +292,45 @@ export class TransactionalEmail {
 
         const idempotencyKeys = this.deps.idempotencyKeys
         const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, send)
+        if (idempotencyKey) {
+            invocation.id = keyedRunId(team.id, RUN_SCOPE, idempotencyKey)
+        }
+        const run: Run = idempotencyKey ? { invocation, claim: { fingerprint } } : { invocation }
+        const leaseToken = randomUUID()
         const releaseKey = async () => {
             if (idempotencyKey) {
                 stages.start('idempotency')
-                await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                await idempotencyKeys.release(team.id, idempotencyKey, leaseToken)
             }
         }
         if (idempotencyKey) {
             stages.start('idempotency')
-            const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
+            let recalled: Recalled
+            try {
+                recalled = await this.deps.runIntake.recall(run)
+            } catch (error) {
+                logger.error('🔑', 'Transactional email claim lookup failed', {
+                    error: error instanceof Error ? error.message : String(error),
+                })
+                return { kind: 'unavailable' }
+            }
+            switch (recalled.status) {
+                case 'replayed':
+                    return {
+                        kind: 'replayed',
+                        invocationId: recalled.runId,
+                        attachmentTotals:
+                            references.length > 0
+                                ? {
+                                      ...NO_ATTACHMENTS,
+                                      ...(await idempotencyKeys.queuedReplayFields(team.id, idempotencyKey)),
+                                  }
+                                : NO_ATTACHMENTS,
+                    }
+                case 'mismatch':
+                    return { kind: 'mismatch' }
+            }
+            const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, leaseToken)
             switch (reservation.status) {
                 case 'replayed':
                     return {
@@ -318,6 +351,7 @@ export class TransactionalEmail {
             return refused(filesShape.refused.error, 400, filesShape.refused)
         }
         let attachmentTotals = NO_ATTACHMENTS
+        let committed: Committed
         try {
             stages.start('checks')
             const refusal = await this.refuseTransactionalEmail(
@@ -353,15 +387,29 @@ export class TransactionalEmail {
                 }
             }
             stages.start('queue_insert')
-            await this.deps.runIntake.launch([{ invocation }], { wait: 'committed' })
-            cdpEmailQueuedTotal.labels(priorityClass).inc()
+            committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
         } catch (error) {
             await releaseKey()
             throw error
         }
+        // A request that found no claim lost a race to another with the same key, which queued the run.
+        if (committed.outcome !== 'created') {
+            await releaseKey()
+            return committed.outcome === 'replayed'
+                ? { kind: 'replayed', invocationId: committed.runId, attachmentTotals }
+                : { kind: 'mismatch' }
+        }
+        cdpEmailQueuedTotal.labels(priorityClass).inc()
         if (idempotencyKey) {
             stages.start('idempotency')
-            await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id, attachmentTotals)
+            await idempotencyKeys.markQueued(
+                team.id,
+                idempotencyKey,
+                fingerprint,
+                invocation.id,
+                leaseToken,
+                attachmentTotals
+            )
         }
         stages.start('metrics_flush')
         this.deps.emailStatusService.queue({

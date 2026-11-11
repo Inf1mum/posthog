@@ -1224,9 +1224,9 @@ describe('Cyclotron V2', () => {
             })
 
             it.each([
-                ['reclaims it once its job is gone', true, ['created']],
-                ['keeps it while its job still exists', false, ['mismatch']],
-            ])('for an expired key the janitor has not swept, %s', async (_name, jobGone, expected) => {
+                ['reclaims it once its job is gone', true, null, ['created']],
+                ['keeps it while its job still exists', false, { fingerprint: 'a' }, ['mismatch']],
+            ])('for an expired key the janitor has not swept, %s', async (_name, jobGone, found, expected) => {
                 const id = uuidv7()
                 await manager.createJobsIdempotently([keyed(id, 'a')])
                 if (jobGone) {
@@ -1237,6 +1237,7 @@ describe('Cyclotron V2', () => {
                     [id]
                 )
 
+                expect(await manager.findIdempotencyKey(id)).toEqual(found)
                 expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(expected)
                 expect(await totalJobCount()).toBe(1)
             })

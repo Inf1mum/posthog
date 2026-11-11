@@ -2,8 +2,10 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { createHash } from 'crypto'
 import { Server } from 'http'
 import { DateTime, Settings } from 'luxon'
+import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -28,6 +30,7 @@ import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { getCustomHttpResponse } from '../consumers/cdp-source-webhooks.consumer'
 import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-keys'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
@@ -709,6 +712,77 @@ describe('SourceWebhooksConsumer', () => {
                     expect(res.status).toEqual(400)
                     expect(res.body.error).toEqual('Idempotency-Key must be 255 characters or fewer')
                     expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
+
+                describe('claimed in the cyclotron database', () => {
+                    let queue: CyclotronJobQueuePostgresV2
+                    let cyclotron: Pool
+                    let claimingApi: CdpApi
+                    let claimingServer: Server
+
+                    const jobsOfFlow = async (): Promise<string[]> =>
+                        (
+                            await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                        ).rows.map((row) => row.id)
+                    const valkeyKey = (key: string) =>
+                        `@posthog/idempotency/workflow-webhook/${team.id}/${createHash('sha256')
+                            .update(`${hogFlow.id}/${key}`)
+                            .digest('hex')}`
+
+                    beforeEach(async () => {
+                        queue = new CyclotronJobQueuePostgresV2(1, hub)
+                        await queue.startAsProducer()
+                        cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                        claimingApi = new CdpApi(
+                            hub,
+                            { ...createCdpConsumerDeps(hub), idempotencyValkey },
+                            { hogQueue: createMockJobQueue(), hogflowQueue: queue }
+                        )
+                        await claimingApi.start()
+                        app = setupExpressApp()
+                        app.use('/', claimingApi.router())
+                        claimingServer = app.listen(0, () => {})
+                    })
+
+                    afterEach(async () => {
+                        await cyclotron.query('DELETE FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
+                        claimingServer.close()
+                        await claimingApi.stop()
+                        await queue.stopProducer()
+                        await cyclotron.end()
+                    })
+
+                    it('answers duplicate from the cyclotron database once Valkey has lost the run', async () => {
+                        const first = await postWithKey(hogFlow.id, 'escalation-6')
+                        await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
+                            client.del(valkeyKey('escalation-6'))
+                        )
+
+                        const second = await postWithKey(hogFlow.id, 'escalation-6')
+
+                        expect(first.status).toEqual(201)
+                        expect(second.status).toEqual(200)
+                        expect(second.body.status).toEqual('duplicate')
+                        expect(await jobsOfFlow()).toHaveLength(1)
+                    })
+
+                    it('starts one run for two requests with the same key while the idempotency store never answers', async () => {
+                        const valkey = claimingApi['cdpSourceWebhooksConsumer']['idempotencyKeys']['valkey']!
+                        const useClient = valkey.useClient
+                        jest.spyOn(valkey, 'useClient').mockImplementation((options, callback) =>
+                            options.name === 'idempotency-reserve'
+                                ? new Promise(() => {})
+                                : useClient(options, callback)
+                        )
+
+                        const responses = await Promise.all([
+                            postWithKey(hogFlow.id, 'escalation-7'),
+                            postWithKey(hogFlow.id, 'escalation-7'),
+                        ])
+
+                        expect(responses.map((res) => res.status).sort()).toEqual([200, 201])
+                        expect(await jobsOfFlow()).toHaveLength(1)
+                    })
                 })
             })
 
