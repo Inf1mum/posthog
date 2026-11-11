@@ -13,12 +13,10 @@ export type RunIntakeDeps = {
     invocationResultsRowsService: HogInvocationResultsService
 }
 
-// The one way a transactional send or a workflow webhook run reaches the job queue.
 export class RunIntake {
     constructor(private deps: RunIntakeDeps) {}
 
-    // Results come back in the order of runs. An insert error is rethrown after the runs' queued rows are dropped,
-    // so a run that never reached the queue leaves no 'running' row behind.
+    // Dropped on an insert error, so a run that never reached the queue leaves no 'running' row behind.
     async launch(runs: Run[], _options: { wait: 'committed' }): Promise<Committed[]> {
         const invocations = runs.map((run) => run.invocation)
         // Queued before queueInvocations serializes the invocations, because queueLifecycleRow stamps
