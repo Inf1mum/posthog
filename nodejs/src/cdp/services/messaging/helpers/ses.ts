@@ -266,12 +266,25 @@ export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 const isTransactionalMail = (mail: { tags?: Record<string, string[]> }): boolean =>
     mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true'
 
+// SES message tag set at send time on transactional emails, holding the message's creation time in Unix ms. A keyed
+// send's id holds no time, so this tag dates the status rows its SES events write.
+export const SES_MESSAGE_CREATED_TAG = 'ph_created_ms'
+
+export const sesMessageCreatedTags = (createdAt: Date | undefined): { Name: string; Value: string }[] =>
+    createdAt ? [{ Name: SES_MESSAGE_CREATED_TAG, Value: String(createdAt.getTime()) }] : []
+
+const messageCreatedAtMs = (mail: { tags?: Record<string, string[]> }): number | undefined => {
+    const createdMs = Number(mail.tags?.[SES_MESSAGE_CREATED_TAG]?.[0])
+    return Number.isSafeInteger(createdMs) && createdMs > 0 ? createdMs : undefined
+}
+
 export type SesEmailStatusUpdate = {
     teamId: string
     invocationId: string
     status: EmailStatus
     reason?: EmailStatusReason
     timestamp: string
+    messageCreatedAtMs?: number
 }
 
 const normalizeAddress = (address: string): string => unquoteMailbox(address).trim().toLowerCase()
@@ -1184,7 +1197,13 @@ export class SesWebhookHandler {
             if (suppressionAllowed && invocationId && isTransactionalMail(rec.mail)) {
                 const update = resolveEmailStatusUpdate(rec)
                 if (update) {
-                    emailStatusUpdates.push({ teamId, invocationId, ...update })
+                    const createdMs = messageCreatedAtMs(rec.mail)
+                    emailStatusUpdates.push({
+                        teamId,
+                        invocationId,
+                        ...update,
+                        ...(createdMs === undefined ? {} : { messageCreatedAtMs: createdMs }),
+                    })
                 }
             }
         }

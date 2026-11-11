@@ -8,6 +8,7 @@ import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
+import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -711,6 +712,7 @@ describe('EmailTrackingService', () => {
                 parentRunId,
                 workflowVersion,
                 transactionalMessageId,
+                messageCreatedMs,
                 headerCode,
                 distinctId,
                 snsMessageId = new UUIDT().toString(),
@@ -722,6 +724,7 @@ describe('EmailTrackingService', () => {
                 workflowVersion?: number
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
+                messageCreatedMs?: string
                 headerCode?: string
                 distinctId?: string
                 snsMessageId?: string
@@ -751,7 +754,10 @@ describe('EmailTrackingService', () => {
                         ...(transactionalMessageId
                             ? {
                                   commonHeaders: { to: ['user@example.com'] },
-                                  tags: { ph_email_status: ['true'] },
+                                  tags: {
+                                      ph_email_status: ['true'],
+                                      ...(messageCreatedMs ? { ph_created_ms: [messageCreatedMs] } : {}),
+                                  },
                               }
                             : {}),
                     },
@@ -881,14 +887,21 @@ describe('EmailTrackingService', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(0)
             })
 
-            it('records the bounced status of a transactional email', async () => {
+            const sentAt = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
+            it.each([
+                ['dated by its message id', new UUIDT(sentAt).toString(), undefined],
+                [
+                    'of a keyed send, dated by its tag',
+                    uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
+                    String(sentAt),
+                ],
+            ])('records the bounced status of a transactional email %s', async (_desc, messageId, messageCreatedMs) => {
                 const hogFlow = await insertHogFlow(
                     hub.postgres,
                     new FixtureHogFlowBuilder().withTeamId(team.id).build()
                 )
-                const messageId = new UUIDT().toString()
 
-                await recordBounce({ functionId: hogFlow.id, transactionalMessageId: messageId })
+                await recordBounce({ functionId: hogFlow.id, transactionalMessageId: messageId, messageCreatedMs })
 
                 // Recording flushes the status row before the batch completes.
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
@@ -899,6 +912,7 @@ describe('EmailTrackingService', () => {
                             message_id: messageId,
                             status: 'bounced',
                             reason: 'hard',
+                            created_at: '2026-01-02 03:04:05.678000',
                         }),
                     }),
                 ])

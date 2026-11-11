@@ -1434,11 +1434,16 @@ describe('EmailService', () => {
                 'a transactional email run',
                 {},
                 TRANSACTIONAL_EMAIL_EVENT,
-                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_created_ms: String(Date.UTC(2026, 0, 2, 3, 4, 5, 678)),
+                },
             ],
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
+            invocation.state.globals.event.timestamp = '2026-01-02T03:04:05.678Z'
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.emailSendResult).toEqual({ status: 'accepted' })

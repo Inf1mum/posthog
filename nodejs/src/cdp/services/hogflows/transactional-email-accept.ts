@@ -18,7 +18,7 @@ import {
     EmailQueuePriorityClass,
     cdpEmailQueuedTotal,
 } from '~/cdp/services/messaging/email-priority'
-import { EmailStatusService } from '~/cdp/services/messaging/email-status.service'
+import { EmailStatusService, messageCreatedAtOf } from '~/cdp/services/messaging/email-status.service'
 import { EmailSuppressionService } from '~/cdp/services/messaging/email-suppression.service'
 import { EmailValidationService } from '~/cdp/services/messaging/email-validation.service'
 import { utmTagsFor } from '~/cdp/services/messaging/helpers/email-html'
@@ -370,6 +370,7 @@ export class TransactionalEmail {
             status: 'queued',
             recipient: to,
             functionId: hogFlow.id,
+            messageCreatedAt: messageCreatedAtOf(invocation.state.event),
         })
         // Best-effort rows, so the 202 waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const warnTelemetryFlushFailed = (error: unknown) =>

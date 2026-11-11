@@ -34,7 +34,12 @@ import {
 } from './attachment-store'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
+import {
+    EmailStatusReason,
+    EmailStatusService,
+    isTransactionalEmailSend,
+    messageCreatedAtOf,
+} from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -43,7 +48,7 @@ import {
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
+import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG, sesMessageCreatedTags } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
@@ -1049,6 +1054,7 @@ export class EmailService {
                     status: success ? 'sent' : 'failed',
                     reason: success ? undefined : failureReason,
                     sendingDomain,
+                    messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
             }
         }
@@ -1487,7 +1493,10 @@ export class EmailService {
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
-                    ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
+                    ? [
+                          { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
+                          ...sesMessageCreatedTags(messageCreatedAtOf(result.invocation.state.globals.event)),
+                      ]
                     : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
