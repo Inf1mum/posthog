@@ -45,6 +45,7 @@ import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnal
 import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsDeleteDialog } from './AnalyticsDeleteDialog'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
@@ -53,6 +54,7 @@ import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
+import { AnalyticsTagsDialog } from './AnalyticsTagsDialog'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
 import { ShareToSpaceDialog } from './ShareToSpaceDialog'
@@ -356,6 +358,8 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
+            <AnalyticsTagsDialog />
+            <AnalyticsDeleteDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )
