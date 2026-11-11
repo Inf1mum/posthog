@@ -2,10 +2,10 @@ import { CyclotronV2IdempotentOutcome } from '../../../src/cdp/services/cyclotro
 import { IdempotentInvocation, IdempotentJobQueue } from '../../../src/cdp/services/job-queue/job-queue.interface'
 
 export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
-    // Claims behave as the cyclotron database's do: a key and its job are written together or not at all, and a
-    // lookup sees only claims whose job write finished.
+    // Claims behave as the cyclotron database's do: a key and its job are written together or not at all, a second
+    // claim of a key waits until the first one commits or rolls back, and a lookup sees only committed claims.
     const claims = new Map<string, string>()
-    const claiming = new Map<string, string>()
+    const claiming = new Map<string, Promise<void>>()
     const queue = {
         queueInvocations: jest.fn().mockResolvedValue(undefined),
         queueInvocationResults: jest.fn().mockResolvedValue(undefined),
@@ -22,17 +22,22 @@ export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
             async (entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentOutcome[]> => {
                 const outcomes: CyclotronV2IdempotentOutcome[] = []
                 for (const { invocation, fingerprint } of entries) {
-                    const stored = claims.get(invocation.id) ?? claiming.get(invocation.id)
+                    while (claiming.has(invocation.id)) {
+                        await claiming.get(invocation.id)
+                    }
+                    const stored = claims.get(invocation.id)
                     if (stored !== undefined) {
                         outcomes.push(stored === fingerprint ? 'replayed' : 'mismatch')
                         continue
                     }
-                    claiming.set(invocation.id, fingerprint)
+                    let settle = (): void => {}
+                    claiming.set(invocation.id, new Promise((resolve) => (settle = resolve)))
                     try {
                         await queue.queueInvocations([invocation])
                         claims.set(invocation.id, fingerprint)
                     } finally {
                         claiming.delete(invocation.id)
+                        settle()
                     }
                     outcomes.push('created')
                 }

@@ -289,7 +289,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         const invocations = this.sanitizer.sanitizeInvocations(entries.map((entry) => entry.invocation))
         return await this.manager.createJobsIdempotently(
             invocations.map((invocation, i) => ({
-                job: { ...invocationToV2JobInit(invocation), id: invocation.id },
+                job: invocationToV2JobInit(invocation),
                 fingerprint: entries[i].fingerprint,
             }))
         )
@@ -445,7 +445,7 @@ function serializeState(invocation: CyclotronJobInvocation): Buffer {
     return Buffer.from(JSON.stringify(blob))
 }
 
-export function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
+export function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit & { id: string } {
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)

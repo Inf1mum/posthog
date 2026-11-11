@@ -2702,17 +2702,24 @@ describe('CDP API', () => {
                     expect(await jobsOfFlow()).toEqual([])
                 })
 
-                it('queues one job for two first requests with the same key', async () => {
+                it('queues one job for two first requests with the same key that both pass Valkey', async () => {
+                    // Both reservations find the key absent, as when Valkey lost the first one, so only the claim
+                    // keeps the second request from queueing a job.
+                    const useClient = valkey().useClient.bind(valkey())
+                    jest.spyOn(valkey(), 'useClient').mockImplementation((options, callback) =>
+                        options.name === 'idempotency-reserve' ? Promise.resolve(null) : useClient(options, callback)
+                    )
+
                     const responses = await Promise.all([sendKeyed(), sendKeyed()])
 
                     const jobs = await jobsOfFlow()
                     expect(jobs).toHaveLength(1)
-                    for (const res of responses) {
-                        expect([202, 409]).toContain(res.status)
-                        if (res.status === 202) {
-                            expect(res.body.invocation_id).toEqual(jobs[0])
-                        }
-                    }
+                    expect(
+                        responses.map((res) => [res.status, res.body.invocation_id, res.body.replayed]).sort()
+                    ).toEqual([
+                        [202, jobs[0], false],
+                        [202, jobs[0], true],
+                    ])
                 })
             })
         })

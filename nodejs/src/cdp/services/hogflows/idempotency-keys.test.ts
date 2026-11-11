@@ -81,6 +81,27 @@ describe('IdempotencyKeys', () => {
         expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'replayed', invocationId: 'run-1' })
     })
 
+    it('counts a late completion of a run another request already recorded as written, not as refused', async () => {
+        await keys.reserve(1, key, 'request-a', 'lease-1')
+        // The first request's hold expires, a retry reserves the key, and its claim finds the run already queued.
+        await valkey.useClient({ name: 'test-expire' }, (client) => client.del(keys['redisKey'](1, key)))
+        await keys.reserve(1, key, 'request-a', 'lease-2')
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')
+        const [writtenBefore, refusedBefore] = await Promise.all([
+            operations('test', 'mark_queued', 'written'),
+            operations('test', 'mark_queued', 'not_owned'),
+        ])
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-1')
+
+        expect(await operations('test', 'mark_queued', 'written')).toEqual(writtenBefore + 1)
+        expect(await operations('test', 'mark_queued', 'not_owned')).toEqual(refusedBefore)
+        expect(await keys.reserve(1, key, 'request-a', 'lease-3')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+        })
+    })
+
     it('records the run once the store recovers from an outage that outlasts the inline attempts', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
         const failedBefore = await operations('test', 'mark_queued', 'failed')
