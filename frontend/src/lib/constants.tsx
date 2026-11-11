@@ -646,6 +646,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_SUPABASE_AUTH_EMAILS: 'workflows-supabase-auth-emails', // owner: @luke-belton #team-workflows, send Supabase auth emails through transactional templates
     WORKFLOWS_SURVEY_STEP: 'workflows-survey-step', // owner: @dmarchuk #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
+    WORKFLOWS_TRANSACTIONAL_PUSH_API: 'workflows-transactional-push-api', // owner: @dmarchuk #team-workflows, send push notifications from code with one API call
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
