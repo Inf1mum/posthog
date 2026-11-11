@@ -1484,6 +1484,7 @@ export namespace Schemas {
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `transactional_email` - transactional_email
+     * * `transactional_push` - transactional_push
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -1612,6 +1613,7 @@ export namespace Schemas {
       Toolbar: 'toolbar',
       Tracing: 'tracing',
       TransactionalEmail: 'transactional_email',
+      TransactionalPush: 'transactional_push',
       FieldNote: 'field_note',
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
@@ -1740,6 +1742,7 @@ export namespace Schemas {
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
+       * * `transactional_push` - transactional_push
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1991,6 +1994,7 @@ export namespace Schemas {
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
+       * * `transactional_push` - transactional_push
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -2411,6 +2415,7 @@ export namespace Schemas {
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
+       * * `transactional_push` - transactional_push
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -69439,6 +69444,7 @@ export namespace Schemas {
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `transactional_email` - transactional_email
+       * * `transactional_push` - transactional_push
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -110806,6 +110812,23 @@ export namespace Schemas {
     }
 
     /**
+     * Values for the template's {{ variables.* }} placeholders, keyed by variable name.
+     */
+    export type SendPushMessageData = { [key: string]: unknown };
+
+    export interface SendPush {
+      /** ID of a push template made transactional, which holds the notification's title, body and push channels. */
+      template_id: string;
+      /**
+         * Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends. The template can't read the person's properties, so pass everything it needs in `message_data`.
+         * @maxLength 400
+         */
+      distinct_id: string;
+      /** Values for the template's {{ variables.* }} placeholders, keyed by variable name. */
+      message_data?: SendPushMessageData;
+    }
+
+    /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
     export type SendTransactionalEmailMessageData = {[key: string]: unknown};
@@ -110832,6 +110855,13 @@ export namespace Schemas {
       /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
       message_id: string;
       /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
+      replayed: boolean;
+    }
+
+    export interface SendTransactionalPushResponse {
+      /** ID of the queued send. Delivery is reported against the template's workflow asynchronously. */
+      message_id: string;
+      /** True when an earlier request with the same `Idempotency-Key` already queued this notification. No new notification was sent, and `message_id` is the earlier send's ID. */
       replayed: boolean;
     }
 
