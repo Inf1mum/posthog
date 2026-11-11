@@ -1205,12 +1205,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
+                'workflows-transactional-push-api',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(37)
+        expect(flags).toHaveLength(38)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
