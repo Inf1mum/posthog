@@ -19,7 +19,6 @@ const failedWrites = async (status: EmailStatus): Promise<number> =>
 describe('EmailStatusService', () => {
     const createdAt = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
     const messageId = new UUIDT(createdAt).toString()
-    // A keyed run's id is a name-based UUID, which holds no time.
     const keyedMessageId = uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8')
     const triggerTime = new Date(Date.UTC(2026, 0, 2, 3, 9, 0, 250))
 

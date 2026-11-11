@@ -138,7 +138,6 @@ const uuidtCreatedAt = (messageId: string): Date => {
 // 20,480 ids within a single millisecond.
 export const isKeyedMessageId = (messageId: string): boolean => isUuid(messageId) && uuidVersion(messageId) === 5
 
-// Every writer of a message carries its run's trigger event, so all of them date a keyed message alike.
 export const messageCreatedAtOf = (event: { timestamp?: unknown } | null | undefined): Date | undefined => {
     const createdAt = typeof event?.timestamp === 'string' ? new Date(event.timestamp) : undefined
     return createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : undefined

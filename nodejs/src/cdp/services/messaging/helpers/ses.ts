@@ -266,8 +266,7 @@ export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 const isTransactionalMail = (mail: { tags?: Record<string, string[]> }): boolean =>
     mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true'
 
-// SES message tag set at send time on transactional emails, holding the message's creation time in Unix ms. A keyed
-// send's id holds no time, so this tag dates the status rows its SES events write.
+// A transactional email's creation time in Unix ms. It dates the status rows a keyed send's SES events write.
 export const SES_MESSAGE_CREATED_TAG = 'ph_created_ms'
 
 export const sesMessageCreatedTags = (createdAt: Date | undefined): { Name: string; Value: string }[] =>

@@ -2144,7 +2144,6 @@ describe('EmailService', () => {
             ['a workflow email that SES rejects', '$pageview', false, sesRejects, null, null],
             ['a skipped workflow email', '$pageview', false, recipientSuppressed, null, null],
         ]
-        // A keyed run's id is a name-based UUID, so its rows take their created_at from the trigger event.
         const statusTriggerTime = '2026-01-02T03:04:05.678Z'
         const statusIdKinds: [string, string, string][] = [
             ['a UUIDT id', new UUIDT(Date.UTC(2026, 0, 1, 12, 0, 0, 250)).toString(), '2026-01-01 12:00:00.250000'],
