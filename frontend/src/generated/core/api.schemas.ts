@@ -2931,6 +2931,26 @@ export const AvailableSetupTaskIdsEnumApi = {
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
 
+/**
+ * * `off` - Off
+ * * `serving` - Serving
+ */
+export type RealtimeCohortsAccessEnumApi =
+    (typeof RealtimeCohortsAccessEnumApi)[keyof typeof RealtimeCohortsAccessEnumApi]
+
+export const RealtimeCohortsAccessEnumApi = {
+    Off: 'off',
+    Serving: 'serving',
+} as const
+
+export interface TeamRealtimeCohortsApi {
+    /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+     *
+     * * `off` - Off
+     * * `serving` - Serving */
+    access: RealtimeCohortsAccessEnumApi
+}
+
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
 
 export const FlagEvaluationsModeEnumApi = {
@@ -3772,6 +3792,8 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts: TeamRealtimeCohortsApi
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
@@ -4668,6 +4690,8 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts?: TeamRealtimeCohortsApi
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
