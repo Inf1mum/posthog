@@ -241,11 +241,13 @@ export type CommonConfig = BaseServerConfig & {
     // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
     // everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
-    // Pauses third-party requests to a destination IP address after many recent requests to it failed in a way that
-    // discards the connection. See IpCircuitBreaker.
-    EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED: boolean
-    EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES: number
-    EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS: number
+    // The rate of new third-party connections each pod may open to one destination IP address. 0 turns the limit off.
+    // See ConnectionRateLimiter.
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: number
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: number
+    // When false, a connection over the limit opens anyway and only the metric counts it, so the limit can be sized from
+    // real traffic before it rejects anything.
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: boolean
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -286,9 +288,9 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECTIONS'
     | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
     | 'EXTERNAL_REQUEST_PROXY_TEAMS'
-    | 'EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED'
-    | 'EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES'
-    | 'EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -302,13 +304,14 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
         EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
         EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
-        EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED: process.env.EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED === 'true',
-        EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES: Number(
-            process.env.EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES ?? 20
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: Number(
+            process.env.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND ?? 0
         ),
-        EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS: Number(
-            process.env.EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS ?? 30_000
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: Number(
+            process.env.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST ?? 50
         ),
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED:
+            process.env.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED === 'true',
     }
 }
 
@@ -471,9 +474,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECTIONS: 500,
         EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
         EXTERNAL_REQUEST_PROXY_TEAMS: '',
-        EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED: false,
-        EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES: 20,
-        EXTERNAL_REQUEST_CIRCUIT_BREAKER_COOLDOWN_MS: 30_000,
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: 0,
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: 50,
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: false,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',
