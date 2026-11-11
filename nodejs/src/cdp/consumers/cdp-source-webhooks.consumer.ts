@@ -8,6 +8,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
+import { RunIntake } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
@@ -115,6 +116,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     protected name = 'CdpSourceWebhooksConsumer'
     private hogQueue: JobQueue
     private hogflowQueue: JobQueue
+    private runIntake: RunIntake
     private promiseScheduler: PromiseScheduler
 
     constructor(
@@ -127,6 +129,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         this.promiseScheduler = new PromiseScheduler()
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
+        this.runIntake = new RunIntake({
+            hogflowQueue: this.hogflowQueue,
+            invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+        })
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
@@ -388,23 +394,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     count: 1,
                 })
 
-                // Queued before queueInvocations serializes the invocation, because
-                // queueLifecycleRow stamps `state.firstScheduledAt` and only a stamp set before
-                // serialization reaches cyclotron.
-                this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(
-                    hogFlowInvocation,
-                    'running'
-                )
-
                 try {
-                    await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+                    const [committed] = await this.runIntake.launch([{ invocation: hogFlowInvocation }], {
+                        wait: 'committed',
+                    })
+                    queuedInvocationId = committed.runId
                 } catch (error) {
                     if (scopedIdempotencyKey) {
                         await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
                     }
                     throw error
                 }
-                queuedInvocationId = invocationId
                 if (scopedIdempotencyKey) {
                     await this.idempotencyKeys.markQueued(
                         hogFlow.team_id,

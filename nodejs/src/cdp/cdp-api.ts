@@ -32,6 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
+import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlowAction } from './schema/hogflow'
@@ -1344,7 +1345,10 @@ export class CdpApi {
             emailTrackingCodeSigner: this.emailTrackingCodeSigner,
             invocationResultsService: this.invocationResultsService,
             emailStatusService: this.emailStatusService,
-            hogflowQueue: this.hogflowQueue,
+            runIntake: new RunIntake({
+                hogflowQueue: this.hogflowQueue,
+                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+            }),
         }
     }
 

@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { z } from 'zod'
 
+import { RunIntake } from '~/cdp/intake/run-intake'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { InvocationResultsService } from '~/cdp/services/invocation-results.service'
-import { JobQueue } from '~/cdp/services/job-queue/job-queue.interface'
 import { GroupsManagerService, GroupsMap } from '~/cdp/services/managers/groups-manager.service'
 import { PersonsManagerService } from '~/cdp/services/managers/persons-manager.service'
 import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
@@ -75,7 +75,7 @@ export type TransactionalEmailDeps = {
     emailTrackingCodeSigner: EmailTrackingCodeSigner
     invocationResultsService: InvocationResultsService
     emailStatusService: EmailStatusService
-    hogflowQueue: JobQueue
+    runIntake: RunIntake
 }
 
 export type TransactionalEmailAcceptRequest = {
@@ -353,13 +353,7 @@ export class TransactionalEmail {
                 }
             }
             stages.start('queue_insert')
-            this.deps.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
-            try {
-                await this.deps.hogflowQueue.queueInvocations([invocation])
-            } catch (error) {
-                this.deps.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
-                throw error
-            }
+            await this.deps.runIntake.launch([{ invocation }], { wait: 'committed' })
             cdpEmailQueuedTotal.labels(priorityClass).inc()
         } catch (error) {
             await releaseKey()
