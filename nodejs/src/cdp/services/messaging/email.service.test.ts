@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
 import { register } from 'prom-client'
+import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -57,7 +58,7 @@ import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusService } from './email-status.service'
+import { EmailStatus, EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
@@ -2087,7 +2088,8 @@ describe('EmailService', () => {
             })
         })
 
-        it.each([
+        type StatusCase = [string, string, boolean, () => void, EmailStatus | null, string | null]
+        const statusCases: StatusCase[] = [
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
             [
                 'a transactional email that SES rejects',
@@ -2141,12 +2143,27 @@ describe('EmailService', () => {
             ['a workflow email that SES accepts', '$pageview', false, sesAccepts, null, null],
             ['a workflow email that SES rejects', '$pageview', false, sesRejects, null, null],
             ['a skipped workflow email', '$pageview', false, recipientSuppressed, null, null],
-        ])('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason) => {
+        ]
+        // A keyed run's id is a name-based UUID, so its rows take their created_at from the trigger event.
+        const statusTriggerTime = '2026-01-02T03:04:05.678Z'
+        const statusIdKinds: [string, string, string][] = [
+            ['a UUIDT id', new UUIDT(Date.UTC(2026, 0, 1, 12, 0, 0, 250)).toString(), '2026-01-01 12:00:00.250000'],
+            ['a keyed id', uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'), '2026-01-02 03:04:05.678000'],
+        ]
+
+        it.each(
+            statusCases.flatMap(([name, ...rest]) =>
+                statusIdKinds.map(
+                    ([kind, id, createdAt]) => [`${name}, under ${kind}`, ...rest, id, createdAt] as const
+                )
+            )
+        )('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason, id, createdAt) => {
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
             service['emailStatusService'] = emailStatusService
-            invocation.id = new UUIDT().toString()
+            invocation.id = id
             invocation.state.globals.event.event = triggerEvent
+            invocation.state.globals.event.timestamp = statusTriggerTime
             setup()
 
             await service.executeSendEmail(invocation, isTest)
@@ -2159,10 +2176,11 @@ describe('EmailService', () => {
                     ? [
                           expect.objectContaining({
                               team_id: team.id,
-                              message_id: invocation.id,
+                              message_id: id,
                               status,
                               reason,
                               sending_domain: sendingDomain,
+                              created_at: createdAt,
                           }),
                       ]
                     : []

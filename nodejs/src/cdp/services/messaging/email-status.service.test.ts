@@ -4,8 +4,9 @@ import { v5 as uuidv5 } from 'uuid'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 
-import { EmailStatusOutput } from '../../outputs/outputs'
+import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { EmailStatus, EmailStatusService, EmailStatusUpdate, buildEmailStatusRow } from './email-status.service'
@@ -178,17 +179,18 @@ describe('EmailStatusService', () => {
         })
     })
 
-    it('drops and counts a row of a keyed message that carries no creation time', async () => {
-        const produce = jest.fn().mockResolvedValue(undefined)
-        const service = new EmailStatusService({ produce } as unknown as IngestionOutputs<EmailStatusOutput>, {
-            EMAIL_STATUS_ENABLED: true,
-        })
+    it.each([
+        ['no creation time', undefined],
+        ['an invalid creation time', new Date(NaN)],
+    ])('drops and counts a row of a keyed message that carries %s', async (_desc, messageCreatedAt) => {
+        const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+        const service = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
         const before = await failedWrites('queued')
 
-        service.queue({ teamId: 2, messageId: keyedMessageId, status: 'queued' })
+        service.queue({ teamId: 2, messageId: keyedMessageId, status: 'queued', messageCreatedAt })
         await service.flush()
 
-        expect(produce).not.toHaveBeenCalled()
+        expect(kafka.produced(EMAIL_STATUS_OUTPUT)).toEqual([])
         expect(await failedWrites('queued')).toBe(before + 1)
     })
 
