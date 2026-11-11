@@ -46,20 +46,18 @@ export class RunIntake {
     // A keyed run claims its key in the job's own transaction, so a repeat creates no second job.
     async launch(runs: Run[], _options: { wait: 'committed' }): Promise<Committed[]> {
         const invocations = runs.map((run) => run.invocation)
-        // Queued before the insert serializes the invocations, because queueLifecycleRow stamps
-        // `state.firstScheduledAt` and only a stamp set before serialization reaches cyclotron.
-        for (const invocation of invocations) {
-            this.deps.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
-        }
-        let outcomes: CyclotronV2IdempotentOutcome[]
-        try {
-            outcomes = await this.insert(runs)
-        } catch (error) {
-            this.dropRowsOf(invocations)
-            throw error
-        }
-        // Only a created job runs, so a repeat leaves no 'running' row behind.
-        this.dropRowsOf(invocations.filter((_, i) => outcomes[i] !== 'created'))
+        const rows = this.deps.invocationResultsRowsService
+        // Stamped before the insert serializes the invocations, because only a stamp set before serialization
+        // reaches cyclotron.
+        invocations.forEach((invocation) => rows.stampFirstScheduledAt(invocation))
+        const outcomes = await this.insert(runs)
+        // A repeat of a key shares its run id with the run that was created, so only the created run gets a
+        // 'running' row, and nothing here drops rows by id.
+        invocations.forEach((invocation, i) => {
+            if (outcomes[i] === 'created') {
+                rows.queueLifecycleRow(invocation, 'running')
+            }
+        })
         return invocations.map((invocation, i) => ({ runId: invocation.id, outcome: outcomes[i] }))
     }
 
@@ -77,9 +75,5 @@ export class RunIntake {
             keyed.forEach(({ i }, k) => (outcomes[i] = claimed[k]))
         }
         return outcomes
-    }
-
-    private dropRowsOf(invocations: CyclotronJobInvocationHogFlow[]): void {
-        this.deps.invocationResultsRowsService.dropQueuedRowsFor(invocations.map((invocation) => invocation.id))
     }
 }

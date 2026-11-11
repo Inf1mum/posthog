@@ -767,6 +767,7 @@ describe('SourceWebhooksConsumer', () => {
                     })
 
                     it('starts one run for two requests with the same key while the idempotency store never answers', async () => {
+                        hub.HOG_INVOCATION_RESULTS_ENABLED = true
                         const valkey = claimingApi['cdpSourceWebhooksConsumer']['idempotencyKeys']['valkey']!
                         const useClient = valkey.useClient
                         jest.spyOn(valkey, 'useClient').mockImplementation((options, callback) =>
@@ -781,7 +782,20 @@ describe('SourceWebhooksConsumer', () => {
                         ])
 
                         expect(responses.map((res) => res.status).sort()).toEqual([200, 201])
-                        expect(await jobsOfFlow()).toHaveLength(1)
+                        const jobs = await jobsOfFlow()
+                        expect(jobs).toHaveLength(1)
+                        await claimingApi['cdpSourceWebhooksConsumer']['promiseScheduler'].waitForAllSettled()
+                        await claimingApi['cdpSourceWebhooksConsumer']['hogFunctionMonitoringService'].flush()
+                        expect(
+                            getMetrics()
+                                .filter((metric) => metric.metric_name === 'triggered')
+                                .map((m) => m.count)
+                        ).toEqual([1])
+                        expect(
+                            mockProducerObserver
+                                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                                .map((row) => [row.value.invocation_id, row.value.status])
+                        ).toEqual([[jobs[0], 'running']])
                     })
                 })
             })

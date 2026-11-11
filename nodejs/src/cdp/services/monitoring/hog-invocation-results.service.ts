@@ -318,6 +318,13 @@ const sumDurationMs = (invocation: CyclotronJobInvocation): number | null => {
  * rows for filtered-out events is intentionally skipped — the worker only
  * calls into this service for invocations that are actually queued to run.
  */
+const firstScheduledAtOf = (invocation: CyclotronJobInvocation): string | undefined =>
+    isHogFunctionInvocation(invocation)
+        ? invocation.state?.firstScheduledAt
+        : isHogFlowInvocation(invocation)
+          ? invocation.state?.firstScheduledAt
+          : undefined
+
 export class HogInvocationResultsService {
     private queuedRows: HogInvocationResultRow[] = []
 
@@ -369,6 +376,39 @@ export class HogInvocationResultsService {
         hogInvocationResultsPendingMessages.set(this.queuedRows.length)
     }
 
+    /**
+     * Stamps `state.firstScheduledAt` as the run's first 'running' row would, without queueing the row. A caller
+     * that serializes the invocation before it knows whether the run starts stamps first, then queues the row only
+     * for a run that started.
+     */
+    stampFirstScheduledAt(invocation: CyclotronJobInvocation): void {
+        if (this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            this.stampedFirstScheduledAt(invocation, new Date())
+        }
+    }
+
+    // `firstScheduledAt` records the original cyclotron-scheduled time. The
+    // rerun paginator sets it on rehydration; here we also stamp it onto the
+    // state the first time we emit a 'running' row, so it survives cyclotron
+    // fetch retries (which overwrite `queueScheduledAt`). The 'running' row
+    // fires once at invocation creation, before the invocation is enqueued,
+    // so the value carries forward in the serialized state. Without this the
+    // terminal row — written after a retry — would record the retry time and
+    // win the ReplacingMergeTree argMax, mislabeling the run's start time.
+    private stampedFirstScheduledAt(invocation: CyclotronJobInvocation, now: Date): string {
+        const stamped = firstScheduledAtOf(invocation)
+        if (stamped !== undefined) {
+            return stamped
+        }
+        const scheduledAtIso = isoMicroseconds(invocation.queueScheduledAt?.toJSDate() ?? now)
+        if (isHogFunctionInvocation(invocation)) {
+            invocation.state.firstScheduledAt = scheduledAtIso
+        } else if (isHogFlowInvocation(invocation) && invocation.state) {
+            invocation.state.firstScheduledAt = scheduledAtIso
+        }
+        return scheduledAtIso
+    }
+
     private buildLifecycleRow(
         invocation: CyclotronJobInvocation,
         status: HogInvocationResultStatus,
@@ -403,28 +443,9 @@ export class HogInvocationResultsService {
               ? (invocation.state?.rerunAttempts ?? 0)
               : 0
 
-        // `firstScheduledAt` records the original cyclotron-scheduled time. The
-        // rerun paginator sets it on rehydration; here we also stamp it onto the
-        // state the first time we emit a 'running' row, so it survives cyclotron
-        // fetch retries (which overwrite `queueScheduledAt`). The 'running' row
-        // fires once at invocation creation, before the invocation is enqueued,
-        // so the value carries forward in the serialized state. Without this the
-        // terminal row — written after a retry — would record the retry time and
-        // win the ReplacingMergeTree argMax, mislabeling the run's start time.
-        let firstScheduledAt = isHogFunctionInvocation(invocation)
-            ? invocation.state?.firstScheduledAt
-            : isHogFlowInvocation(invocation)
-              ? invocation.state?.firstScheduledAt
-              : undefined
         const scheduledAtIso = isoMicroseconds(invocation.queueScheduledAt?.toJSDate() ?? now)
-        if (status === 'running' && firstScheduledAt === undefined) {
-            firstScheduledAt = scheduledAtIso
-            if (isHogFunctionInvocation(invocation)) {
-                invocation.state.firstScheduledAt = scheduledAtIso
-            } else if (isHogFlowInvocation(invocation) && invocation.state) {
-                invocation.state.firstScheduledAt = scheduledAtIso
-            }
-        }
+        const firstScheduledAt =
+            status === 'running' ? this.stampedFirstScheduledAt(invocation, now) : firstScheduledAtOf(invocation)
 
         const row: HogInvocationResultRow = {
             team_id: invocation.teamId,

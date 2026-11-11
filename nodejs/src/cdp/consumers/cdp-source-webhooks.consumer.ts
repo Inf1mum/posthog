@@ -402,12 +402,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     }
                 }
 
-                addMetric({
-                    metric_kind: 'other',
-                    metric_name: 'triggered',
-                    count: 1,
-                })
-
                 let committed: Committed
                 try {
                     committed = (await this.runIntake.launch([run], { wait: 'committed' }))[0]
@@ -432,6 +426,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                         leaseToken
                     )
                 }
+                addMetric({
+                    metric_kind: 'other',
+                    metric_name: 'triggered',
+                    count: 1,
+                })
                 queuedInvocationId = committed.runId
             } else {
                 addMetric({
@@ -446,9 +445,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             return { result: functionResult, queuedInvocationId }
         } catch (error) {
             logger.error('Error triggering hog flow', { error })
-            // The 'running' row is queued before the invocation reaches cyclotron, so a throw after
-            // that point leaves a row for a run that does not exist and would never terminate.
-            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocationId])
             addMetric({
                 metric_kind: 'failure',
                 metric_name: 'trigger_failed',
