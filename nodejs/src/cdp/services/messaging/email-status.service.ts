@@ -134,6 +134,8 @@ const uuidtCreatedAt = (messageId: string): Date => {
 }
 
 // A keyed send's id is uuidv5(team, scope, key), so every retry of a key gets the same id. That id holds no time.
+// A UUIDT reads as version 5 only once its per-millisecond series passes 0x5000, which takes one process minting
+// 20,480 ids within a single millisecond.
 export const isKeyedMessageId = (messageId: string): boolean => isUuid(messageId) && uuidVersion(messageId) === 5
 
 // Every writer of a message carries its run's trigger event, so all of them date a keyed message alike.

@@ -43,7 +43,11 @@ LIMIT 1
 
 
 def is_keyed_message_id(message_id: UUID) -> bool:
-    """A keyed send's ID is uuid5(team, scope, key), so every retry of the key gets the same ID."""
+    """A keyed send's ID is uuid5(team, scope, key), so every retry of the key gets the same ID.
+
+    A UUIDT reads as version 5 only once its per-millisecond series passes 0x5000, which takes one process
+    minting 20,480 IDs within a single millisecond.
+    """
     return message_id.version == 5
 
 
