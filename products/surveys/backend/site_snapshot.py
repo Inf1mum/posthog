@@ -305,7 +305,6 @@ def _color(value: object) -> str | None:
 
 
 def _site_style_of(export_context: dict) -> SiteStyle | None:
-    # The exporter read these values off the customer's page, so only well-formed ones get through.
     style = export_context.get("site_style")
     if not isinstance(style, dict):
         return None
@@ -351,7 +350,6 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
             team_id=team.id,
             export_format=ExportedAsset.ExportFormat.PNG,
             export_context__survey_site_snapshot=key,
-            # A snapshot from before the exporter read site styles has none to suggest.
             export_context__read_site_style=True,
             is_system=True,
             created_at__gte=timezone.now() - SNAPSHOT_WINDOW,

@@ -56,7 +56,6 @@ function PlaceholderCard({
     )
 }
 
-// The site snapshot needs a saved survey shown on the customer's own pages.
 function rendersOnSite(survey: Survey | NewSurvey): survey is Survey {
     return survey.id !== 'new' && [SurveyType.Popover, SurveyType.Widget].includes(survey.type)
 }
@@ -98,7 +97,6 @@ function LoadedSiteThemeCard({
     )
 }
 
-// Loads only on request, since the first load renders a frame of a session recording.
 export function SiteThemeCard(props: SiteThemeCardProps): JSX.Element | null {
     const [requested, setRequested] = useState(false)
 

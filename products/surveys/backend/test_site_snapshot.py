@@ -203,7 +203,9 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
     def test_asks_the_exporter_to_read_the_site_style(self, _async_connect: AsyncMock) -> None:
         snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
 
-        assert ExportedAsset.objects.get().export_context["read_site_style"] is True  # type: ignore[index]
+        export_context = ExportedAsset.objects.get().export_context
+        assert export_context is not None
+        assert export_context["read_site_style"] is True
         assert snapshot.site_style is None
 
     @parameterized.expand(

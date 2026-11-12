@@ -81,8 +81,7 @@ MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on v
 CONTENT_PADDING = 80  # Padding for card borders
 
 REPLAY_WRAPPER_SELECTOR = ".replayer-wrapper"
-# Taller clickable elements are cards or banners, not buttons.
-MAX_BUTTON_HEIGHT = 80
+MAX_BUTTON_HEIGHT_PIXELS = 80
 
 # The replay player mounts rrweb either in the app document or inside its own same-origin frame
 # document, and a document query never crosses into a frame, so look in both.
@@ -91,8 +90,7 @@ FIND_REPLAY_WRAPPER_JS = f"""(
     document.querySelector('iframe.PlayerFrame__document')?.contentDocument?.querySelector('{REPLAY_WRAPPER_SELECTOR}')
 )"""
 
-# Reads the replayed page's computed colors, so a survey can be styled like the customer's site. Colors go through
-# a canvas so every CSS color syntax, oklch included, comes out as sRGB hex.
+# Colors go through a canvas because computed colors can be oklch, not sRGB.
 READ_SITE_STYLE_JS = f"""
     const doc = {FIND_REPLAY_WRAPPER_JS}?.querySelector('iframe')?.contentDocument;
     const view = doc?.defaultView;
@@ -137,14 +135,13 @@ READ_SITE_STYLE_JS = f"""
     }};
 
     const center = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2) || doc.body;
-    // The most prominent button is the one with the most visual weight: its size times how much it stands out.
     let button = null;
     let buttonWeight = 0;
     for (const element of doc.querySelectorAll('button, a, input[type="submit"], input[type="button"], [role="button"]')) {{
         const rect = element.getBoundingClientRect();
         const area = rect.width * rect.height;
         const onScreen = rect.bottom > 0 && rect.top < view.innerHeight && rect.right > 0 && rect.left < view.innerWidth;
-        if (!area || rect.height > {MAX_BUTTON_HEIGHT} || !onScreen) {{
+        if (!area || rect.height > {MAX_BUTTON_HEIGHT_PIXELS} || !onScreen) {{
             continue;
         }}
         // Some design systems paint a button on an inner element that fills it.
@@ -643,7 +640,6 @@ def _read_site_style(page: Page) -> Optional[dict]:
     try:
         return page.evaluate(f"() => {{ {READ_SITE_STYLE_JS} }}")
     except PlaywrightError as e:
-        # The screenshot is already taken, and a snapshot without a style is still worth keeping.
         capture_exception(e)
         return None
 
