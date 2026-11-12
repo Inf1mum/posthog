@@ -350,6 +350,8 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
             team_id=team.id,
             export_format=ExportedAsset.ExportFormat.PNG,
             export_context__survey_site_snapshot=key,
+            # A snapshot from before the exporter read site styles has none to suggest.
+            export_context__read_site_style=True,
             is_system=True,
             created_at__gte=timezone.now() - SNAPSHOT_WINDOW,
         )

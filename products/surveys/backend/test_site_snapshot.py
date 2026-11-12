@@ -332,6 +332,19 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         assert ExportedAsset.objects.count() == 2
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_when_the_cached_one_did_not_read_the_site_style(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        asset = self._rendered_snapshot(survey, None)
+        assert asset.export_context is not None
+        asset.export_context = {k: v for k, v in asset.export_context.items() if k != "read_site_style"}
+        asset.save()
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == SnapshotStatus.RENDERING
+        assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_renders_again_when_a_render_was_abandoned(self, _async_connect: AsyncMock) -> None:
         survey = self._survey(None)
         get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
