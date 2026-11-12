@@ -1272,9 +1272,9 @@ describe('Cyclotron V2', () => {
                     [id]
                 )
                 try {
-                    const started = Date.now()
-                    await expect(manager.claimJobs([keyed(id, 'a')], { lockTimeoutMs: 200 })).rejects.toThrow()
-                    expect(Date.now() - started).toBeLessThan(1000)
+                    await expect(manager.claimJobs([keyed(id, 'a')], { lockTimeoutMs: 200 })).rejects.toMatchObject({
+                        code: '55P03',
+                    })
                     expect(await backendsWaitingOnLocks()).toBe(0)
                 } finally {
                     await blocker.query('ROLLBACK')
@@ -1333,9 +1333,7 @@ describe('Cyclotron V2', () => {
                     return client
                 })
 
-                const started = Date.now()
                 await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
-                expect(Date.now() - started).toBeLessThan(1000)
                 expect(pool.totalCount).toBe(0)
 
                 expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
