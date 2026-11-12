@@ -204,6 +204,24 @@ export class CyclotronJobConflictError extends Error {
 // instead of holding every keyed request open. The routes treat a failed lookup as unavailable, which is safe to retry.
 export const IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS = 1000
 
+// Rejects once the deadline passes. The operation keeps running, so its late result goes to `onLate` and a late
+// failure is dropped.
+function beforeDeadline<T>(operation: Promise<T>, deadline: number, onLate: (value: T) => void = () => {}): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    let expired = false
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () => {
+                expired = true
+                reject(new Error('Timed out reading an idempotency key'))
+            },
+            Math.max(0, deadline - Date.now())
+        )
+    })
+    operation.then((value) => expired && onLate(value)).catch(() => undefined)
+    return Promise.race([operation, timeout]).finally(() => clearTimeout(timer))
+}
+
 export class CyclotronV2Manager {
     private pool: Pool
     private readonly depthLimit: number
@@ -497,11 +515,30 @@ export class CyclotronV2Manager {
      */
     async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
         const deadline = Date.now() + this.idempotencyKeyLookupTimeoutMs
-        const client = await this.connectBefore(deadline)
+        const client = await beforeDeadline(this.pool.connect(), deadline, (late) => late.release())
+        let finished = false
         try {
-            // Postgres cancels the statement itself at the timeout, so a stalled lookup frees its connection.
-            const statementTimeoutMs = Math.max(1, deadline - Date.now())
-            await client.query(`BEGIN; SET LOCAL statement_timeout = ${statementTimeoutMs}`)
+            const claim = await beforeDeadline(this.readIdempotencyKey(client, id, deadline), deadline)
+            finished = true
+            return claim
+        } finally {
+            // A lookup that didn't finish may still hold a transaction or a stalled socket, so it never goes back.
+            client.release(!finished)
+        }
+    }
+
+    private async readIdempotencyKey(
+        client: PoolClient,
+        id: string,
+        deadline: number
+    ): Promise<{ fingerprint: string } | null> {
+        const remainingMs = deadline - Date.now()
+        if (remainingMs <= 0) {
+            throw new Error('Timed out reading an idempotency key')
+        }
+        // Postgres cancels the statement itself at the timeout, so a lookup stuck on a lock frees the database too.
+        await client.query(`BEGIN; SET LOCAL statement_timeout = ${remainingMs}`)
+        try {
             const { rows } = await client.query<{ fingerprint: string }>(
                 `SELECT fingerprint FROM cyclotron_idempotency_keys k
                  WHERE k.id = $1
@@ -513,28 +550,6 @@ export class CyclotronV2Manager {
         } catch (error) {
             await client.query('ROLLBACK').catch(() => undefined)
             throw error
-        } finally {
-            client.release()
-        }
-    }
-
-    private async connectBefore(deadline: number): Promise<PoolClient> {
-        const connecting = this.pool.connect()
-        let timer: NodeJS.Timeout | undefined
-        const expired = new Promise<never>((_, reject) => {
-            timer = setTimeout(
-                () => reject(new Error('Timed out waiting for a cyclotron connection')),
-                Math.max(0, deadline - Date.now())
-            )
-        })
-        try {
-            return await Promise.race([connecting, expired])
-        } catch (error) {
-            // The pool still hands the connection to this request once one frees, so give it straight back.
-            connecting.then((client) => client.release()).catch(() => undefined)
-            throw error
-        } finally {
-            clearTimeout(timer)
         }
     }
 

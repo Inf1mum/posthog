@@ -1293,6 +1293,28 @@ describe('Cyclotron V2', () => {
                 expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
             })
 
+            it('gives up on a connection that stops answering, drops it, and answers the next lookup', async () => {
+                const pool: Pool = bounded['pool']
+                const connect = pool.connect.bind(pool)
+                // Stands in for a network stall: the server never sees BEGIN, so statement_timeout can't end it.
+                jest.spyOn(pool, 'connect').mockImplementationOnce(async () => {
+                    const client = await connect()
+                    const query = client.query.bind(client)
+                    jest.spyOn(client, 'query').mockImplementation(((text: unknown, ...rest: unknown[]) =>
+                        typeof text === 'string' && text.startsWith('BEGIN')
+                            ? new Promise(() => undefined)
+                            : query(text as string, ...(rest as []))) as typeof client.query)
+                    return client
+                })
+
+                const started = Date.now()
+                await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                expect(Date.now() - started).toBeLessThan(1000)
+                expect(pool.totalCount).toBe(0)
+
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
+            })
+
             it('gives up while every pool connection is busy, and answers once one comes back', async () => {
                 const id = uuidv7()
                 const blocker = await assertPool.connect()
