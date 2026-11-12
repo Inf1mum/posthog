@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
+import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { isLockTimeout } from '~/cdp/services/cyclotron-v2/manager'
 import { InvocationResultsService } from '~/cdp/services/invocation-results.service'
@@ -113,6 +114,14 @@ const sendRefused = ({ status, body }: SendRefusal): TransactionalEmailAcceptOut
 const NO_ATTACHMENTS = { attachment_count: 0, attachment_bytes: 0 }
 
 const RUN_SCOPE = 'transactional-email'
+
+const ASYNC_REFUSAL_BUDGET_MS = 1_000
+
+const refusalFailOpenCounter = new Counter({
+    name: 'cdp_transactional_email_refusal_fail_open_total',
+    help: 'Async-mode sends accepted without their refusal checks, because the lookups failed or ran past their budget, by reason.',
+    labelNames: ['reason'] as const,
+})
 
 const emailRenderLimitExceeded = (emailStep: EmailStep): SendRefusal => ({
     status: 400,
@@ -230,6 +239,8 @@ export class TransactionalEmail {
         const references = send?.attachments ?? []
         const idempotencyKeys = this.deps.idempotencyKeys
         const fingerprint = transactionalEmailFingerprint(hogFlowId, parsed.data, send)
+        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer.
+        const isAsync = this.deps.runIntake.modeOf(teamId) === 'async'
         // Recalled before any lookup can refuse the send, so a retry replays even after its workflow changed.
         const claim: Claim | undefined = idempotencyKey
             ? { runId: keyedRunId(teamId, RUN_SCOPE, idempotencyKey), fingerprint }
@@ -238,7 +249,9 @@ export class TransactionalEmail {
             stages.start('idempotency')
             let recalled: Recalled
             try {
-                recalled = await this.deps.runIntake.recall(claim)
+                recalled = isAsync
+                    ? await this.deps.runIntake.recallWithin(claim, 'transactional-email')
+                    : await this.deps.runIntake.recall(claim)
             } catch (error) {
                 logger.error('🔑', 'Transactional email claim lookup failed', {
                     error: error instanceof Error ? error.message : String(error),
@@ -334,13 +347,15 @@ export class TransactionalEmail {
             ? { kind: 'transactional-email', invocation, claim: { fingerprint } }
             : { kind: 'transactional-email', invocation }
         const leaseToken = randomUUID()
+        // The Valkey lease only guards a synchronous insert; in async mode the consumer's claim deduplicates.
+        const leasesKey = idempotencyKey && !isAsync
         const releaseKey = async () => {
-            if (idempotencyKey) {
+            if (leasesKey) {
                 stages.start('idempotency')
                 await idempotencyKeys.release(team.id, idempotencyKey, leaseToken)
             }
         }
-        if (idempotencyKey) {
+        if (leasesKey) {
             stages.start('idempotency')
             const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, leaseToken)
             switch (reservation.status) {
@@ -366,11 +381,10 @@ export class TransactionalEmail {
         let committed: Committed
         try {
             stages.start('checks')
-            const refusal = await this.refuseTransactionalEmail(
-                team.id,
-                hogFlow,
-                transactionalEmailRecipients(parsed.data)
-            )
+            const recipients = transactionalEmailRecipients(parsed.data)
+            const refusal = isAsync
+                ? await this.refuseWithinBudget(team.id, hogFlow, recipients)
+                : await this.refuseTransactionalEmail(team.id, hogFlow, recipients)
             if (refusal) {
                 await releaseKey()
                 return refused(refusal.outcome, refusal.status)
@@ -397,6 +411,11 @@ export class TransactionalEmail {
                     attachment_count: files.accepted.files.length,
                     attachment_bytes: files.accepted.attachmentBytes,
                 }
+            }
+            if (isAsync) {
+                stages.start('intake_produce')
+                const produced = await this.deps.runIntake.produce(run)
+                return this.producedOutcome(produced, invocation.id, priorityClass, attachmentTotals)
             }
             stages.start('queue_insert')
             committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
@@ -469,6 +488,53 @@ export class TransactionalEmail {
         void produced.catch(warnTelemetryFlushFailed)
 
         return { kind: 'accepted', invocationId: invocation.id, attachmentTotals }
+    }
+
+    private producedOutcome(
+        produced: Produced,
+        invocationId: string,
+        priorityClass: EmailQueuePriorityClass,
+        attachmentTotals: ReplayFields
+    ): TransactionalEmailAcceptOutcome {
+        switch (produced) {
+            case 'accepted':
+                cdpEmailQueuedTotal.labels(priorityClass).inc()
+                return { kind: 'accepted', invocationId, attachmentTotals }
+            case 'unavailable':
+                return refused('intake_unavailable', 503)
+            case 'too_large':
+                return refused('message_too_large', 413)
+            case 'invalid':
+                return refused('invalid_request', 400)
+        }
+    }
+
+    // In async mode a slow lookup fails open: the email worker repeats every check before it sends.
+    private async refuseWithinBudget(
+        teamId: number,
+        hogFlow: HogFlow,
+        recipients: string[]
+    ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
+        let timer: NodeJS.Timeout | undefined
+        const late = new Promise<'late'>(
+            (resolve) => (timer = setTimeout(() => resolve('late'), ASYNC_REFUSAL_BUDGET_MS))
+        )
+        try {
+            const refusal = await Promise.race([this.refuseTransactionalEmail(teamId, hogFlow, recipients), late])
+            if (refusal !== 'late') {
+                return refusal
+            }
+            refusalFailOpenCounter.labels({ reason: 'late' }).inc()
+        } catch (error) {
+            refusalFailOpenCounter.labels({ reason: 'error' }).inc()
+            logger.warn('⚠️', 'Transactional email refusal lookups failed, accepting the send', {
+                team_id: teamId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+        } finally {
+            clearTimeout(timer)
+        }
+        return null
     }
 
     private async messageBodyBytes(

@@ -1,9 +1,11 @@
+import { Counter } from 'prom-client'
 import { v5 as uuidv5 } from 'uuid'
 
 import { CyclotronV2IdempotentClaim } from '~/cdp/services/cyclotron-v2/types'
 import { IdempotentJobQueue } from '~/cdp/services/job-queue/job-queue.interface'
 import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { logger } from '~/common/utils/logger'
 
 import { IntakeMode, IntakeProducer } from './intake-producer'
 import { RunKind, claimFingerprint } from './message'
@@ -20,6 +22,17 @@ export type Recalled = { status: 'absent' } | { status: 'replayed' | 'mismatch';
 
 // `claimedFingerprint` is set when a keyed run found an existing claim: the fingerprint of the request that made it.
 export type Committed = { runId: string; outcome: CyclotronV2IdempotentClaim['outcome']; claimedFingerprint?: string }
+
+export type Produced = 'accepted' | 'unavailable' | 'too_large' | 'invalid'
+
+// In async mode a slow claim lookup must not hold up the answer: the consumer deduplicates anyway.
+export const ASYNC_RECALL_BUDGET_MS = 250
+
+const recallFailSoftCounter = new Counter({
+    name: 'cdp_intake_recall_fail_soft_total',
+    help: 'Async-mode claim lookups that failed or ran past their budget, so the run was produced without them, by kind.',
+    labelNames: ['kind'] as const,
+})
 
 export type RunIntakeDeps = {
     hogflowQueue: IdempotentJobQueue
@@ -44,6 +57,40 @@ export class RunIntake {
             return { status: 'absent' }
         }
         return { status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch', runId }
+    }
+
+    modeOf(teamId: number): IntakeMode {
+        return this.deps.intake?.modeOf(teamId) ?? 'off'
+    }
+
+    // Async mode: the claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.
+    async recallWithin(claim: Claim, kind: RunKind, budgetMs: number = ASYNC_RECALL_BUDGET_MS): Promise<Recalled> {
+        let timer: NodeJS.Timeout | undefined
+        const late = new Promise<'late'>((resolve) => (timer = setTimeout(() => resolve('late'), budgetMs)))
+        try {
+            const recalled = await Promise.race([this.recall(claim), late])
+            if (recalled !== 'late') {
+                return recalled
+            }
+        } catch (error) {
+            logger.warn('[CdpIntake] Claim lookup failed, producing the run without it', {
+                kind,
+                run_id: claim.runId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+        } finally {
+            clearTimeout(timer)
+        }
+        recallFailSoftCounter.labels({ kind }).inc()
+        return { status: 'absent' }
+    }
+
+    async produce(run: Run): Promise<Produced> {
+        const outcome = await this.deps.intake!.producer.produce(
+            { kind: run.kind, invocation: run.invocation, fingerprint: run.claim?.fingerprint },
+            'async'
+        )
+        return outcome === 'acked' ? 'accepted' : outcome === 'unacked' ? 'unavailable' : outcome
     }
 
     async launch(runs: Run[], _options: { wait: 'committed' }): Promise<Committed[]> {
