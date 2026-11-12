@@ -148,13 +148,18 @@ const emailQueueToSendMs = new Histogram({
 
 type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime; teamCapped: boolean }
 
-// A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
-// workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
-// Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
+// A transactional API send waits from the caller's 202: `acceptedAt` when the API stamped it, which counts time on the
+// intake topic, else the job's creation on the email queue. A workflow job can join the email queue long after it was
+// created, so its wait starts at the time it became due. Each comes from a field a clone keeps.
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
-    const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
+    const startedAt =
+        source === 'workflow'
+            ? invocation.queueDueAt
+            : invocation.state.acceptedAt
+              ? DateTime.fromISO(invocation.state.acceptedAt, { zone: 'utc' })
+              : invocation.queueCreatedAt
     return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
 }
 
