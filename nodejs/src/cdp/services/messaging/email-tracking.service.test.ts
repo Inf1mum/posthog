@@ -779,6 +779,7 @@ describe('EmailTrackingService', () => {
                 actionId,
                 sentTags,
                 messageCreatedMs,
+                signedCreatedMs,
                 headerCode,
                 distinctId,
                 snsMessageId = new UUIDT().toString(),
@@ -792,7 +793,10 @@ describe('EmailTrackingService', () => {
                 transactionalMessageId?: string
                 actionId?: string
                 sentTags?: Record<string, string[]>
+                // An unsigned SES tag claiming a creation time, as a forged notification could add.
                 messageCreatedMs?: string
+                // The creation time minted into the signed tracking code.
+                signedCreatedMs?: number
                 headerCode?: string
                 distinctId?: string
                 snsMessageId?: string
@@ -807,6 +811,7 @@ describe('EmailTrackingService', () => {
                         parentRunId,
                         workflowVersion,
                         distinctId,
+                        messageCreatedAtMs: signedCreatedMs,
                         ...(actionId ? { state: { actionId } } : {}),
                     },
                     false,
@@ -958,20 +963,23 @@ describe('EmailTrackingService', () => {
             })
 
             const sentAt = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
+            const keyedMessageId = uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8')
             describe('dated by the message', () => {
                 beforeEach(() => pinDate(sentAt + 60 * 60 * 1000))
                 afterEach(() => jest.useRealTimers())
 
                 it.each([
-                    ['dated by its message id', new UUIDT(sentAt).toString(), undefined],
+                    ['dated by its message id', new UUIDT(sentAt).toString(), undefined, undefined],
+                    ['of a keyed send, dated by its signed tracking code', keyedMessageId, sentAt, undefined],
                     [
-                        'of a keyed send, dated by its tag',
-                        uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
-                        String(sentAt),
+                        'of a keyed send, dated by its signed code though an unsigned tag claims another day',
+                        keyedMessageId,
+                        sentAt,
+                        String(sentAt - 3 * 24 * 60 * 60 * 1000),
                     ],
                 ])(
                     'records the bounced status of a transactional email %s',
-                    async (_desc, messageId, messageCreatedMs) => {
+                    async (_desc, messageId, signedCreatedMs, messageCreatedMs) => {
                         const hogFlow = await insertHogFlow(
                             hub.postgres,
                             new FixtureHogFlowBuilder().withTeamId(team.id).build()
@@ -980,6 +988,7 @@ describe('EmailTrackingService', () => {
                         await recordBounce({
                             functionId: hogFlow.id,
                             transactionalMessageId: messageId,
+                            signedCreatedMs,
                             messageCreatedMs,
                         })
 
@@ -999,7 +1008,10 @@ describe('EmailTrackingService', () => {
                     }
                 )
 
-                it('records no status for a keyed send whose tag dates it in the far future', async () => {
+                it.each([
+                    ['its signed time lies in the far future', Date.UTC(2200, 0, 1), undefined],
+                    ['it carries only an unsigned tag', undefined, String(sentAt)],
+                ])('records no status for a keyed send when %s', async (_desc, signedCreatedMs, messageCreatedMs) => {
                     const hogFlow = await insertHogFlow(
                         hub.postgres,
                         new FixtureHogFlowBuilder().withTeamId(team.id).build()
@@ -1007,8 +1019,30 @@ describe('EmailTrackingService', () => {
 
                     await recordBounce({
                         functionId: hogFlow.id,
-                        transactionalMessageId: uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
-                        messageCreatedMs: String(Date.UTC(2200, 0, 1)),
+                        transactionalMessageId: keyedMessageId,
+                        signedCreatedMs,
+                        messageCreatedMs,
+                    })
+
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
+                })
+            })
+
+            describe('after a keyed message has expired', () => {
+                beforeEach(() => pinDate(sentAt + 40 * 24 * 60 * 60 * 1000))
+                afterEach(() => jest.useRealTimers())
+
+                it('records no fresh-dated status from a fresh unsigned tag', async () => {
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+
+                    await recordBounce({
+                        functionId: hogFlow.id,
+                        transactionalMessageId: keyedMessageId,
+                        signedCreatedMs: sentAt,
+                        messageCreatedMs: String(Date.now()),
                     })
 
                     expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
