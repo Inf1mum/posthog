@@ -131,10 +131,15 @@ READ_SITE_STYLE_JS = f"""
         if (area <= buttonArea || rect.height > {MAX_BUTTON_HEIGHT} || !onScreen) {{
             continue;
         }}
-        const style = view.getComputedStyle(element);
+        // Some design systems paint a button on an inner element that fills it.
+        const painted = [element, ...element.querySelectorAll('*')].find((candidate) => {{
+            const box = candidate.getBoundingClientRect();
+            return box.width * box.height >= area * 0.8 && isOpaque(view.getComputedStyle(candidate).backgroundColor);
+        }});
+        const style = painted && view.getComputedStyle(painted);
         if (
+            style &&
             style.visibility !== 'hidden' &&
-            isOpaque(style.backgroundColor) &&
             hex(style.backgroundColor) !== hex(surfaceBehind(element.parentElement))
         ) {{
             button = style;
