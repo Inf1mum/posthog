@@ -415,7 +415,7 @@ export class TransactionalEmail {
             if (isAsync) {
                 stages.start('intake_produce')
                 const produced = await this.deps.runIntake.produce(run)
-                return this.producedOutcome(produced, invocation.id, priorityClass, attachmentTotals)
+                return this.producedOutcome(produced, invocation.id, attachmentTotals)
             }
             stages.start('queue_insert')
             committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
@@ -493,12 +493,11 @@ export class TransactionalEmail {
     private producedOutcome(
         produced: Produced,
         invocationId: string,
-        priorityClass: EmailQueuePriorityClass,
         attachmentTotals: ReplayFields
     ): TransactionalEmailAcceptOutcome {
         switch (produced) {
+            // The intake consumer counts the queued email once it inserts the run, so a retry is not counted twice.
             case 'accepted':
-                cdpEmailQueuedTotal.labels(priorityClass).inc()
                 return { kind: 'accepted', invocationId, attachmentTotals }
             case 'unavailable':
                 return refused('intake_unavailable', 503)
