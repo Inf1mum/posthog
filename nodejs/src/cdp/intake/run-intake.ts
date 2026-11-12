@@ -35,11 +35,16 @@ export class RunIntake {
     constructor(private deps: RunIntakeDeps) {}
 
     async recall({ runId, fingerprint }: Claim): Promise<Recalled> {
-        const stored = await this.deps.hogflowQueue.findIdempotencyKey(runId)
-        if (!stored) {
+        const claimed = await this.claimedFingerprint(runId)
+        if (claimed === null) {
             return { status: 'absent' }
         }
-        return { status: stored.fingerprint === fingerprint ? 'replayed' : 'mismatch', runId }
+        return { status: claimed === fingerprint ? 'replayed' : 'mismatch', runId }
+    }
+
+    /** The fingerprint of the request that claimed this run, or null when no claim holds it. */
+    async claimedFingerprint(runId: string): Promise<string | null> {
+        return (await this.deps.hogflowQueue.findIdempotencyKey(runId))?.fingerprint ?? null
     }
 
     // A keyed run claims its key in the job's own transaction, so a repeat creates no second job.
