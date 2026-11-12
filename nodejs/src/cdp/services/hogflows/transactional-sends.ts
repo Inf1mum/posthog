@@ -16,7 +16,13 @@ import type { InvocationResultsService } from '../invocation-results.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
-import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
+import {
+    EmailStatusService,
+    EmailStatusUpdate,
+    jobTriggerEvent,
+    messageCreatedAtOf,
+    uuidtCreatedAt,
+} from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
@@ -251,6 +257,7 @@ export class TransactionalSends {
             functionId: hogFlow.id,
             scheduledAt: scheduledAt ?? undefined,
             statusAt,
+            messageCreatedAt: messageCreatedAtOf(invocation.state.event),
         })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
@@ -419,6 +426,7 @@ export class ScheduledTransactionalSends {
             functionId: job.functionId,
             scheduledAt,
             statusAt: result.rescheduledAt,
+            messageCreatedAt: messageCreatedAtOf(jobTriggerEvent(job)),
         })
         return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
     }
@@ -450,6 +458,7 @@ export class ScheduledTransactionalSends {
             status: 'canceled',
             recipient: recipientOf(job),
             functionId: job.functionId,
+            messageCreatedAt: messageCreatedAtOf(jobTriggerEvent(job)),
         })
         void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
         const { produced } = await invocationResultsRowsService.handOffQueuedRows()
