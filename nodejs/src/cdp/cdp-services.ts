@@ -17,6 +17,7 @@ import type { CdpConfig } from './config'
 import {
     CdpEventsDlqOutput,
     CdpIntakeDlqOutput,
+    CdpIntakeRunOutput,
     SesWebhooksOutput,
     WarehouseSourceWebhooksOutput,
 } from './outputs/outputs'
@@ -77,6 +78,7 @@ export type CdpOutput =
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
     | CdpIntakeDlqOutput
+    | CdpIntakeRunOutput
     | SesWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -231,6 +233,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
         | 'CDP_INTAKE_DLQ_TOPIC'
+        | 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC'
+        | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'
         | 'CDP_INTAKE_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'

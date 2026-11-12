@@ -330,7 +330,9 @@ export class TransactionalEmail {
         if (claim) {
             invocation.id = claim.runId
         }
-        const run: Run = claim ? { invocation, claim: { fingerprint } } : { invocation }
+        const run: Run = claim
+            ? { kind: 'transactional-email', invocation, claim: { fingerprint } }
+            : { kind: 'transactional-email', invocation }
         const leaseToken = randomUUID()
         const releaseKey = async () => {
             if (idempotencyKey) {

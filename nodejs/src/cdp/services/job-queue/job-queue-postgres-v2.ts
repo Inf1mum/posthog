@@ -446,10 +446,17 @@ function serializeState(invocation: CyclotronJobInvocation): Buffer {
 }
 
 export function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit & { id: string } {
-    const state = serializeState(invocation)
-    cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
-    cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
+    const job = invocationToV2Job(invocation)
+    cdpJobSizeKb.labels('postgres-v2').observe(job.state.length / 1024)
+    cdpJobSizeCompressedKb.labels('postgres-v2').observe(job.state.length / 1024)
+    return job
+}
 
+// The job the queue would store, without the size metrics, for a caller that only encodes it.
+export function invocationToV2Job(
+    invocation: CyclotronJobInvocation
+): CyclotronV2JobInit & { id: string; state: Buffer } {
+    const state = serializeState(invocation)
     return {
         id: invocation.id,
         teamId: invocation.teamId,
