@@ -302,7 +302,7 @@ function triggerFacts(trigger: TriggerConfig, templateName: string | undefined):
             }
         case 'api':
             return {
-                headline: 'Transactional email',
+                headline: 'Transactional message',
                 detail: 'Starts each time the send endpoint is called',
                 fields: [['Starts on', 'A send API call']],
             }
