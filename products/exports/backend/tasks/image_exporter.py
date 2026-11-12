@@ -124,17 +124,29 @@ READ_SITE_STYLE_JS = f"""
         const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
         return (lighter + 0.05) / (darker + 0.05);
     }};
+    const surfaceByElement = new Map();
     const surfaceBehind = (element) => {{
+        const unresolved = [];
+        let surface = 'white';
         for (; element; element = element.parentElement) {{
+            if (surfaceByElement.has(element)) {{
+                surface = surfaceByElement.get(element);
+                break;
+            }}
+            unresolved.push(element);
             const background = view.getComputedStyle(element).backgroundColor;
             if (isOpaque(background)) {{
-                return background;
+                surface = background;
+                break;
             }}
         }}
-        return 'white';
+        unresolved.forEach((resolved) => surfaceByElement.set(resolved, surface));
+        return surface;
     }};
 
-    const center = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2) || doc.body;
+    // Below short content the hit is <html>, which paints nothing itself. The body's background fills the canvas.
+    const hit = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2);
+    const center = !hit || hit === doc.documentElement ? doc.body : hit;
     let button = null;
     let buttonWeight = 0;
     for (const element of doc.querySelectorAll('button, a, input[type="submit"], input[type="button"], [role="button"]')) {{
