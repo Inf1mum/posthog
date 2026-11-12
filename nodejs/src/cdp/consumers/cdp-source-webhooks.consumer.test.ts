@@ -766,6 +766,22 @@ describe('SourceWebhooksConsumer', () => {
                         expect(await jobsOfFlow()).toHaveLength(1)
                     })
 
+                    it('queues the run when the claim lookup fails, and the claim still dedupes its retry', async () => {
+                        jest.spyOn(queue, 'findIdempotencyKey').mockRejectedValueOnce(
+                            new Error('canceling statement due to statement timeout')
+                        )
+
+                        const first = await postWithKey(hogFlow.id, 'escalation-7')
+                        await idempotencyValkey!.useClient({ name: 'test' }, (client) =>
+                            client.del(valkeyKey('escalation-7'))
+                        )
+                        const second = await postWithKey(hogFlow.id, 'escalation-7')
+
+                        expect(first.status).toEqual(201)
+                        expect(second.body.status).toEqual('duplicate')
+                        expect(await jobsOfFlow()).toHaveLength(1)
+                    })
+
                     it('starts one run for two requests with the same key while the idempotency store never answers', async () => {
                         hub.HOG_INVOCATION_RESULTS_ENABLED = true
                         const valkey = claimingApi['cdpSourceWebhooksConsumer']['idempotencyKeys']['valkey']!

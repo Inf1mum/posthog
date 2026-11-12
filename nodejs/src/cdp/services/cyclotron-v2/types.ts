@@ -129,6 +129,7 @@ export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
+    idempotencyKeyLookupTimeoutMs?: number
     // Knobs for rescheduleParkedJobs — see that method for semantics.
     rescheduleFloorSeconds?: number
     rescheduleWakeRatePerSecond?: number

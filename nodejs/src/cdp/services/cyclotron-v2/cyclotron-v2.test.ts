@@ -1262,6 +1262,62 @@ describe('Cyclotron V2', () => {
                 ])
             })
         })
+
+        describe('findIdempotencyKey under a stalled database', () => {
+            let bounded: CyclotronV2Manager
+
+            beforeEach(async () => {
+                bounded = createManager({
+                    pool: { dbUrl: DB_URL, maxConnections: 1 },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
+                await bounded.connect()
+            })
+
+            afterEach(async () => {
+                await bounded.disconnect()
+            })
+
+            it('gives up on a lookup stuck behind a lock, cancels it in the database, and answers the next one', async () => {
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query('LOCK TABLE cyclotron_idempotency_keys IN ACCESS EXCLUSIVE MODE')
+                try {
+                    await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    expect(await backendsWaitingOnLocks()).toBe(0)
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                }
+
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
+            })
+
+            it('gives up while every pool connection is busy, and answers once one comes back', async () => {
+                const id = uuidv7()
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query(
+                    `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                     VALUES ($1, 1, 'a', NOW() + interval '1 day')`,
+                    [id]
+                )
+                // The claim waits on the blocker's row and holds the pool's only connection meanwhile.
+                const claim = bounded.createJobsIdempotently([
+                    { job: { id, teamId: 1, queueName: QUEUE }, fingerprint: 'a' },
+                ])
+                await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(1), 2000, 10)
+                try {
+                    await expect(bounded.findIdempotencyKey(id)).rejects.toThrow()
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                }
+
+                expect(await claim).toEqual(['created'])
+                expect(await bounded.findIdempotencyKey(id)).toEqual({ fingerprint: 'a' })
+            })
+        })
     })
 
     // ── Worker ───────────────────────────────────────────────────────

@@ -2670,6 +2670,18 @@ describe('CDP API', () => {
                     }
                 )
 
+                it('answers 503 and queues nothing when the claim lookup fails', async () => {
+                    jest.spyOn(queue, 'findIdempotencyKey').mockRejectedValueOnce(
+                        new Error('canceling statement due to statement timeout')
+                    )
+
+                    const res = await sendKeyed()
+
+                    expect(res.status).toEqual(503)
+                    expect(res.body).toEqual({ error: 'idempotency_unavailable' })
+                    expect(await jobsOfFlow()).toEqual([])
+                })
+
                 it('rejects a reused key from the cyclotron database once Valkey has lost the send', async () => {
                     await sendKeyed()
                     await forgetValkeyRecord(keyed.idempotency_key as string)

@@ -200,10 +200,15 @@ export class CyclotronJobConflictError extends Error {
     }
 }
 
+// A keyed request waits on this lookup before it answers, so a stalled cyclotron database must fail the lookup fast
+// instead of holding every keyed request open. The routes treat a failed lookup as unavailable, which is safe to retry.
+export const IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS = 1000
+
 export class CyclotronV2Manager {
     private pool: Pool
     private readonly depthLimit: number
     private readonly depthCheckIntervalMs: number
+    private readonly idempotencyKeyLookupTimeoutMs: number
     private depthCheckPromise: Promise<boolean> | null = null
     private depthCheckExpiresAt = 0
     private readonly reschedule: {
@@ -224,6 +229,7 @@ export class CyclotronV2Manager {
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
+        this.idempotencyKeyLookupTimeoutMs = config.idempotencyKeyLookupTimeoutMs ?? IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS
         this.reschedule = {
             floorSeconds: config.rescheduleFloorSeconds ?? 600,
             wakeRatePerSecond: config.rescheduleWakeRatePerSecond ?? 200,
@@ -485,15 +491,51 @@ export class CyclotronV2Manager {
         })
     }
 
-    /** The key's claim under the same rule that keeps it from being reclaimed: unexpired, or its job still exists. */
+    /**
+     * The key's claim under the same rule that keeps it from being reclaimed: unexpired, or its job still exists.
+     * Throws when the claim can't be read within the lookup budget.
+     */
     async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
-        const { rows } = await this.pool.query<{ fingerprint: string }>(
-            `SELECT fingerprint FROM cyclotron_idempotency_keys k
-             WHERE k.id = $1
-                 AND (k.expires_at > NOW() OR EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = k.id))`,
-            [id.toLowerCase()]
-        )
-        return rows[0] ?? null
+        const deadline = Date.now() + this.idempotencyKeyLookupTimeoutMs
+        const client = await this.connectBefore(deadline)
+        try {
+            // Postgres cancels the statement itself at the timeout, so a stalled lookup frees its connection.
+            const statementTimeoutMs = Math.max(1, deadline - Date.now())
+            await client.query(`BEGIN; SET LOCAL statement_timeout = ${statementTimeoutMs}`)
+            const { rows } = await client.query<{ fingerprint: string }>(
+                `SELECT fingerprint FROM cyclotron_idempotency_keys k
+                 WHERE k.id = $1
+                     AND (k.expires_at > NOW() OR EXISTS (SELECT 1 FROM cyclotron_jobs WHERE cyclotron_jobs.id = k.id))`,
+                [id.toLowerCase()]
+            )
+            await client.query('COMMIT')
+            return rows[0] ?? null
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => undefined)
+            throw error
+        } finally {
+            client.release()
+        }
+    }
+
+    private async connectBefore(deadline: number): Promise<PoolClient> {
+        const connecting = this.pool.connect()
+        let timer: NodeJS.Timeout | undefined
+        const expired = new Promise<never>((_, reject) => {
+            timer = setTimeout(
+                () => reject(new Error('Timed out waiting for a cyclotron connection')),
+                Math.max(0, deadline - Date.now())
+            )
+        })
+        try {
+            return await Promise.race([connecting, expired])
+        } catch (error) {
+            // The pool still hands the connection to this request once one frees, so give it straight back.
+            connecting.then((client) => client.release()).catch(() => undefined)
+            throw error
+        } finally {
+            clearTimeout(timer)
+        }
     }
 
     private insertJobRows(
