@@ -22,6 +22,7 @@ import {
     defaultSurveyAppearance,
     getMatchingSurveyThemeId,
 } from '../../constants'
+import { SiteThemeCard } from '../../survey-appearance/SiteThemeCard'
 import { SurveyBehaviorOptions } from '../../survey-appearance/SurveyBehaviorOptions'
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 import { surveyLogic } from '../../surveyLogic'
@@ -93,6 +94,14 @@ export function AppearanceStep(): JSX.Element {
                     selectedThemeId={selectedThemeId}
                     onSelectTheme={handleThemeSelect}
                     disabled={!surveysStylingAvailable}
+                    leadingCard={
+                        <SiteThemeCard
+                            survey={survey}
+                            appearance={appearance}
+                            onSelectTheme={handleThemeSelect}
+                            disabled={!surveysStylingAvailable}
+                        />
+                    }
                 />
 
                 {/* Color customization */}

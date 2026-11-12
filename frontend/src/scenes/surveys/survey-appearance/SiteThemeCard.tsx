@@ -5,10 +5,10 @@ import { useState } from 'react'
 import { IconBrowser } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { SurveyTheme } from 'scenes/surveys/constants'
+import { NewSurvey, SurveyTheme } from 'scenes/surveys/constants'
 import { ThemePreviewCard } from 'scenes/surveys/wizard/SurveyThemeSelector'
 
-import { Survey, SurveyAppearance } from '~/types'
+import { Survey, SurveyAppearance, SurveyType } from '~/types'
 
 import {
     siteSnapshotUrlCondition,
@@ -18,7 +18,7 @@ import {
 import { siteTheme } from './siteTheme'
 
 interface SiteThemeCardProps {
-    survey: Survey
+    survey: Survey | NewSurvey
     appearance: SurveyAppearance
     onSelectTheme: (theme: SurveyTheme) => void
     disabled?: boolean
@@ -55,7 +55,17 @@ function PlaceholderCard({
     )
 }
 
-function LoadedSiteThemeCard({ survey, appearance, onSelectTheme, disabled }: SiteThemeCardProps): JSX.Element {
+// The site snapshot needs a saved survey shown on the customer's own pages.
+function rendersOnSite(survey: Survey | NewSurvey): survey is Survey {
+    return survey.id !== 'new' && [SurveyType.Popover, SurveyType.Widget].includes(survey.type)
+}
+
+function LoadedSiteThemeCard({
+    survey,
+    appearance,
+    onSelectTheme,
+    disabled,
+}: SiteThemeCardProps & { survey: Survey }): JSX.Element {
     const { siteSnapshot } = useValues(
         surveySiteSnapshotLogic({
             surveyId: survey.id,
@@ -88,11 +98,14 @@ function LoadedSiteThemeCard({ survey, appearance, onSelectTheme, disabled }: Si
 }
 
 // Loads only on request, since the first load renders a frame of a session recording.
-export function SiteThemeCard(props: SiteThemeCardProps): JSX.Element {
+export function SiteThemeCard(props: SiteThemeCardProps): JSX.Element | null {
     const [requested, setRequested] = useState(false)
 
+    if (!rendersOnSite(props.survey)) {
+        return null
+    }
     return requested ? (
-        <LoadedSiteThemeCard {...props} />
+        <LoadedSiteThemeCard {...props} survey={props.survey} />
     ) : (
         <PlaceholderCard
             description="Use your site's colors"

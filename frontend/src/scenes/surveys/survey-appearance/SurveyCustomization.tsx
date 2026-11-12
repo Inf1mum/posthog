@@ -6,7 +6,7 @@ import { LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { NewSurvey, defaultSurveyAppearance, getMatchingSurveyThemeId } from 'scenes/surveys/constants'
+import { defaultSurveyAppearance, getMatchingSurveyThemeId } from 'scenes/surveys/constants'
 import { SiteThemeCard } from 'scenes/surveys/survey-appearance/SiteThemeCard'
 import { SurveyAppearanceModal } from 'scenes/surveys/survey-appearance/SurveyAppearanceModal'
 import {
@@ -17,14 +17,9 @@ import { SurveyBehaviorOptions } from 'scenes/surveys/survey-appearance/SurveyBe
 import { CustomizationProps } from 'scenes/surveys/survey-appearance/types'
 import { SurveyThemeSelector } from 'scenes/surveys/wizard/SurveyThemeSelector'
 
-import { AvailableFeature, Survey, SurveyType } from '~/types'
+import { AvailableFeature, SurveyType } from '~/types'
 
 import { surveysLogic } from '../surveysLogic'
-
-// The site snapshot needs a saved survey shown on the customer's own pages.
-function rendersOnSite(survey: NewSurvey | Survey): survey is Survey {
-    return survey.id !== 'new' && [SurveyType.Popover, SurveyType.Widget].includes(survey.type)
-}
 
 function CustomizationSection({
     title,
@@ -80,14 +75,12 @@ export function Customization({
                     disabled={!surveysStylingAvailable || !!disabledReason}
                     showHeader={false}
                     leadingCard={
-                        rendersOnSite(survey) ? (
-                            <SiteThemeCard
-                                survey={survey}
-                                appearance={surveyAppearance}
-                                onSelectTheme={(theme) => onAppearanceChange(theme.appearance)}
-                                disabled={!surveysStylingAvailable || !!disabledReason}
-                            />
-                        ) : null
+                        <SiteThemeCard
+                            survey={survey}
+                            appearance={surveyAppearance}
+                            onSelectTheme={(theme) => onAppearanceChange(theme.appearance)}
+                            disabled={!surveysStylingAvailable || !!disabledReason}
+                        />
                     }
                 />
             </CustomizationSection>
