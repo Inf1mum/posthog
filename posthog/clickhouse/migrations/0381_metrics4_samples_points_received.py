@@ -14,13 +14,21 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # In cloud the ingestion-metrics nodes write to the metrics cluster, and the logs cluster keeps its
 # idle metrics4 tables until their TTL empties them. The local stack still runs the chain on the
 # logs and apm roles.
+#
+# A replicated ALTER runs on one host of the roles it is given, so each storage cluster gets its own
+# operation. Both roles in one operation would alter only one of the two clusters.
+STORAGE_ROLES = [NodeRole.LOGS, NodeRole.METRICS] if run_mode().is_deployed_cloud else [NodeRole.LOGS]
+
 operations = [
-    run_sql_with_exceptions(
-        f"ALTER TABLE {DB}.metrics4_samples "
-        "ADD COLUMN IF NOT EXISTS points_received SimpleAggregateFunction(sum, UInt64) AFTER _topic",
-        node_roles=[NodeRole.LOGS, NodeRole.METRICS] if run_mode().is_deployed_cloud else [NodeRole.LOGS],
-        sharded=False,
-        is_alter_on_replicated_table=True,
+    *(
+        run_sql_with_exceptions(
+            f"ALTER TABLE {DB}.metrics4_samples "
+            "ADD COLUMN IF NOT EXISTS points_received SimpleAggregateFunction(sum, UInt64) AFTER _topic",
+            node_roles=[role],
+            sharded=False,
+            is_alter_on_replicated_table=True,
+        )
+        for role in STORAGE_ROLES
     ),
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.writable_metrics4_samples "
