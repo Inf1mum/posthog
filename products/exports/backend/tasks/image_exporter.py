@@ -111,6 +111,17 @@ READ_SITE_STYLE_JS = f"""
     }};
     const hex = (color) => '#' + [...rgba(color).slice(0, 3)].map((c) => c.toString(16).padStart(2, '0')).join('');
     const isOpaque = (color) => rgba(color)[3] >= 250;
+    const luminance = (color) => {{
+        const [r, g, b] = [...rgba(color).slice(0, 3)].map((c) => {{
+            c /= 255;
+            return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        }});
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }};
+    const contrast = (a, b) => {{
+        const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+        return (lighter + 0.05) / (darker + 0.05);
+    }};
     const surfaceBehind = (element) => {{
         for (; element; element = element.parentElement) {{
             const background = view.getComputedStyle(element).backgroundColor;
@@ -122,13 +133,14 @@ READ_SITE_STYLE_JS = f"""
     }};
 
     const center = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2) || doc.body;
+    // The most prominent button is the one with the most visual weight: its size times how much it stands out.
     let button = null;
-    let buttonArea = 0;
+    let buttonWeight = 0;
     for (const element of doc.querySelectorAll('button, a, input[type="submit"], input[type="button"], [role="button"]')) {{
         const rect = element.getBoundingClientRect();
         const area = rect.width * rect.height;
         const onScreen = rect.bottom > 0 && rect.top < view.innerHeight && rect.right > 0 && rect.left < view.innerWidth;
-        if (area <= buttonArea || rect.height > {MAX_BUTTON_HEIGHT} || !onScreen) {{
+        if (!area || rect.height > {MAX_BUTTON_HEIGHT} || !onScreen) {{
             continue;
         }}
         // Some design systems paint a button on an inner element that fills it.
@@ -137,13 +149,10 @@ READ_SITE_STYLE_JS = f"""
             return box.width * box.height >= area * 0.8 && isOpaque(view.getComputedStyle(candidate).backgroundColor);
         }});
         const style = painted && view.getComputedStyle(painted);
-        if (
-            style &&
-            style.visibility !== 'hidden' &&
-            hex(style.backgroundColor) !== hex(surfaceBehind(element.parentElement))
-        ) {{
+        const weight = style ? area * (contrast(style.backgroundColor, surfaceBehind(element.parentElement)) - 1) : 0;
+        if (style?.visibility !== 'hidden' && weight > buttonWeight) {{
             button = style;
-            buttonArea = area;
+            buttonWeight = weight;
         }}
     }}
     return {{
