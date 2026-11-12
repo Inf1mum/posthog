@@ -10,7 +10,12 @@ import { removeWorkflowRunTag } from './link-tags'
 import { SesBounce, SesEventRecord, sanitizeSesField } from './ses-events'
 import { SnsEnvelope, SnsEnvelopeVerifier } from './sns-envelope'
 import { unquoteMailbox } from './suppressed-recipients'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    TRACKING_CODE_HEADER_NAME,
+    trackingCodeFormatCounter,
+} from './tracking-code'
 import { sentTransactionalEmailIdentity } from './transactional-email-identity'
 
 // 5.1.1 (unknown user) and 5.1.10 (null MX). The diagnostic match is anchored after the reply code, because its
@@ -796,8 +801,14 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
             if (suppressionAllowed && invocationId && isTransactionalMail(rec.mail)) {
                 const update = resolveEmailStatusUpdate(rec)
                 if (update) {
-                    // From the signed code only: the partition and TTL key must not come from an unsigned value.
-                    const createdMs = parsedCode?.messageCreatedAtMs
+                    // Only from the header signed for the message this verified code names: the partition and TTL
+                    // key must not come from an unsigned value.
+                    const createdMs = this.trackingCodeSigner.verifyMessageCreatedHeaderValue(
+                        invocationId,
+                        rec.mail.headers?.find(
+                            (h) => h.name.toLowerCase() === MESSAGE_CREATED_HEADER_NAME.toLowerCase()
+                        )?.value
+                    )
                     emailStatusUpdates.push({
                         teamId,
                         invocationId,
