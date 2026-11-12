@@ -96,9 +96,14 @@ class TestImageExporter(APIBaseTest):
 
     @parameterized.expand([("asked", True, {"site_style": {"text_color": "#123456"}}), ("not_asked", False, {})])
     def test_replay_export_keeps_the_site_style_only_when_asked(
-        self, _name: str, read_site_style: bool, expected: dict, *args: Any
+        self,
+        _remove: Any,
+        _open: Any,
+        mock_screenshot: Any,
+        _name: str,
+        read_site_style: bool,
+        expected: dict,
     ) -> None:
-        mock_screenshot = args[-1]
         mock_screenshot.return_value = {"text_color": "#123456"}
         context = {"session_recording_id": "rec-1", "timestamp": 3, "width": 1440, "height": 900}
         if read_site_style:
