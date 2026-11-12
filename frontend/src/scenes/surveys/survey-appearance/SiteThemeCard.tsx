@@ -35,14 +35,15 @@ function PlaceholderCard({
     loading?: boolean
     disabled?: boolean
 }): JSX.Element {
+    const interactive = !!onClick && !disabled
     return (
         <button
             type="button"
             onClick={onClick}
-            disabled={disabled || !onClick}
+            disabled={!interactive}
             className={clsx(
                 'flex flex-col rounded-lg border-2 border-dashed border-border bg-bg-light p-2 text-left',
-                onClick && !disabled ? 'hover:border-primary/50' : 'cursor-default',
+                interactive ? 'hover:border-primary/50' : 'cursor-default',
                 disabled && 'opacity-50'
             )}
         >

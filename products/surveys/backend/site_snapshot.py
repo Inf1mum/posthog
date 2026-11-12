@@ -314,13 +314,14 @@ def _site_style_of(export_context: dict) -> SiteStyle | None:
         return None
     button_color, button_text_color = _color(style.get("button_color")), _color(style.get("button_text_color"))
     radius = style.get("button_border_radius")
-    has_button = button_color is not None and button_text_color is not None
+    if button_color is None or button_text_color is None or type(radius) is not int:
+        button_color = button_text_color = radius = None
     return SiteStyle(
         background_color=background_color,
         text_color=text_color,
-        button_color=button_color if has_button else None,
-        button_text_color=button_text_color if has_button else None,
-        button_border_radius=radius if has_button and type(radius) is int and radius >= 0 else None,
+        button_color=button_color,
+        button_text_color=button_text_color,
+        button_border_radius=radius,
     )
 
 

@@ -1,4 +1,4 @@
-import { hexToRGB } from 'lib/utils/colors'
+import { contrastRatio, mixHexColors } from 'lib/utils/colors'
 import { SurveyTheme } from 'scenes/surveys/constants'
 
 import type { SiteStyleApi } from 'products/surveys/frontend/generated/api.schemas'
@@ -9,35 +9,11 @@ const VISIBLE_CONTROL_CONTRAST = 3
 // A pill-shaped site button would turn the survey box into a capsule.
 const MAX_BORDER_RADIUS = 16
 
-function relativeLuminance(hex: string): number {
-    const { r, g, b } = hexToRGB(hex)
-    const linear = (channel: number): number => {
-        const c = channel / 255
-        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-    }
-    return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
-}
-
-export function contrastRatio(a: string, b: string): number {
-    const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x)
-    return (lighter + 0.05) / (darker + 0.05)
-}
-
 function readableOn(background: string, preferred: string): string {
     if (contrastRatio(preferred, background) >= READABLE_TEXT_CONTRAST) {
         return preferred
     }
     return contrastRatio('#000000', background) >= contrastRatio('#ffffff', background) ? '#000000' : '#ffffff'
-}
-
-function mix(from: string, to: string, weight: number): string {
-    const a = hexToRGB(from)
-    const b = hexToRGB(to)
-    const channel = (x: number, y: number): string =>
-        Math.round(x + (y - x) * weight)
-            .toString(16)
-            .padStart(2, '0')
-    return `#${channel(a.r, b.r)}${channel(a.g, b.g)}${channel(a.b, b.b)}`
 }
 
 export function siteTheme(style: SiteStyleApi): SurveyTheme {
@@ -59,10 +35,10 @@ export function siteTheme(style: SiteStyleApi): SurveyTheme {
         appearance: {
             backgroundColor: background,
             textColor: text,
-            borderColor: mix(background, text, 0.15),
+            borderColor: mixHexColors(background, text, 0.15),
             submitButtonColor: button,
             submitButtonTextColor: buttonText,
-            ratingButtonColor: mix(background, text, 0.06),
+            ratingButtonColor: mixHexColors(background, text, 0.06),
             ratingButtonActiveColor: button,
             inputBackground: background,
             fontFamily: 'inherit',

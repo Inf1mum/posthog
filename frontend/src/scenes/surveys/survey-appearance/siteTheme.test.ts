@@ -1,4 +1,6 @@
-import { contrastRatio, siteTheme } from './siteTheme'
+import { contrastRatio } from 'lib/utils/colors'
+
+import { siteTheme } from './siteTheme'
 
 const READ_STYLE = {
     background_color: '#fdf6e3',

@@ -102,12 +102,16 @@ READ_SITE_STYLE_JS = f"""
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;
     const context = canvas.getContext('2d', {{ willReadFrequently: true }});
+    const rgbaByColor = new Map();
     const rgba = (color) => {{
-        context.clearRect(0, 0, 1, 1);
-        context.fillStyle = 'transparent';
-        context.fillStyle = color;
-        context.fillRect(0, 0, 1, 1);
-        return context.getImageData(0, 0, 1, 1).data;
+        if (!rgbaByColor.has(color)) {{
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = 'transparent';
+            context.fillStyle = color;
+            context.fillRect(0, 0, 1, 1);
+            rgbaByColor.set(color, context.getImageData(0, 0, 1, 1).data);
+        }}
+        return rgbaByColor.get(color);
     }};
     const hex = (color) => '#' + [...rgba(color).slice(0, 3)].map((c) => c.toString(16).padStart(2, '0')).join('');
     const isOpaque = (color) => rgba(color)[3] >= 250;

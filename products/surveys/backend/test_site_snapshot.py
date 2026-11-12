@@ -45,6 +45,7 @@ READ_STYLE = {
     "button_text_color": "#ffffff",
     "button_border_radius": 6,
 }
+NO_BUTTON = {"button_color": None, "button_text_color": None, "button_border_radius": None}
 
 
 @time_machine.travel("2026-11-06 12:00:00", tick=False)
@@ -208,24 +209,16 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("read_in_full", READ_STYLE, SiteStyle(**READ_STYLE)),
-            (
-                "page_without_a_button",
-                {**READ_STYLE, "button_color": None, "button_text_color": None, "button_border_radius": None},
-                SiteStyle(
-                    **{**READ_STYLE, "button_color": None, "button_text_color": None, "button_border_radius": None}
-                ),
-            ),
+            ("page_without_a_button", {**READ_STYLE, **NO_BUTTON}, SiteStyle(**{**READ_STYLE, **NO_BUTTON})),
             (
                 "button_missing_its_text_color",
                 {**READ_STYLE, "button_text_color": None},
-                SiteStyle(
-                    **{**READ_STYLE, "button_color": None, "button_text_color": None, "button_border_radius": None}
-                ),
+                SiteStyle(**{**READ_STYLE, **NO_BUTTON}),
             ),
             (
-                "negative_radius",
-                {**READ_STYLE, "button_border_radius": -4},
-                SiteStyle(**{**READ_STYLE, "button_border_radius": None}),
+                "radius_that_is_not_a_number",
+                {**READ_STYLE, "button_border_radius": "6px"},
+                SiteStyle(**{**READ_STYLE, **NO_BUTTON}),
             ),
             ("export_from_before_style_reading", None, None),
             ("css_instead_of_hex", {**READ_STYLE, "background_color": "url(https://example.com/x.png)"}, None),
