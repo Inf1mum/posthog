@@ -145,7 +145,8 @@ READ_SITE_STYLE_JS = f"""
             continue;
         }}
         // Some design systems paint a button on an inner element that fills it.
-        const painted = [element, ...element.querySelectorAll('*')].find((candidate) => {{
+        const children = [...element.children];
+        const painted = [element, ...children, ...children.flatMap((child) => [...child.children])].find((candidate) => {{
             const box = candidate.getBoundingClientRect();
             return box.width * box.height >= area * 0.8 && isOpaque(view.getComputedStyle(candidate).backgroundColor);
         }});

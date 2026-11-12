@@ -66,7 +66,7 @@ function LoadedSiteThemeCard({
     onSelectTheme,
     disabled,
 }: SiteThemeCardProps & { survey: Survey }): JSX.Element {
-    const { siteSnapshot } = useValues(
+    const { siteSnapshot, gaveUp } = useValues(
         surveySiteSnapshotLogic({
             surveyId: survey.id,
             device: 'desktop',
@@ -74,14 +74,15 @@ function LoadedSiteThemeCard({
         })
     )
 
-    if (!siteSnapshot || siteSnapshot.status === 'rendering') {
-        return <PlaceholderCard description="Reading your site…" loading />
-    }
-    if (siteSnapshot.status === 'unavailable') {
+    if (siteSnapshot?.status === 'unavailable') {
         return <PlaceholderCard description="No recent recording of this page" />
     }
-    if (!siteSnapshot.site_style) {
-        return <PlaceholderCard description="Couldn't read your site's colors" />
+    if (!siteSnapshot?.site_style) {
+        return gaveUp || siteSnapshot?.status === 'ready' ? (
+            <PlaceholderCard description="Couldn't read your site's colors" />
+        ) : (
+            <PlaceholderCard description="Reading your site…" loading />
+        )
     }
     const theme = siteTheme(siteSnapshot.site_style)
     return (
