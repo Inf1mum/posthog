@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import { projectLogic } from 'scenes/projectLogic'
 
+import type { SurveyDisplayConditions } from '~/types'
+
 import { getExportsContentRetrieveUrl } from 'products/exports/frontend/generated/api'
 import { surveysSiteSnapshotRetrieve } from 'products/surveys/frontend/generated/api'
 import type {
@@ -20,6 +22,12 @@ export interface SurveySiteSnapshotLogicProps {
     device: SurveysSiteSnapshotRetrieveDevice
     // The snapshot is rendered for a URL condition, so a new condition needs a new snapshot.
     urlCondition: string
+}
+
+export function siteSnapshotUrlCondition(
+    conditions: Pick<SurveyDisplayConditions, 'url' | 'urlMatchType'> | null
+): string {
+    return `${conditions?.urlMatchType ?? ''}:${conditions?.url ?? ''}`
 }
 
 export interface ReadySiteSnapshot {

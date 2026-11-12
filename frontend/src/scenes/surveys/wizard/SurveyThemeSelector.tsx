@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import type { ReactNode } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 
@@ -9,9 +10,10 @@ interface SurveyThemeSelectorProps {
     onSelectTheme: (theme: SurveyTheme) => void
     disabled?: boolean
     showHeader?: boolean
+    leadingCard?: ReactNode
 }
 
-function ThemePreviewCard({
+export function ThemePreviewCard({
     theme,
     isSelected,
     onClick,
@@ -107,6 +109,7 @@ export function SurveyThemeSelector({
     onSelectTheme,
     disabled,
     showHeader = true,
+    leadingCard,
 }: SurveyThemeSelectorProps): JSX.Element {
     return (
         <div className="space-y-2">
@@ -118,6 +121,7 @@ export function SurveyThemeSelector({
             ) : null}
 
             <div className="grid grid-cols-3 gap-2 md:grid-cols-6 max-w-4xl">
+                {leadingCard}
                 {surveyThemes.map((theme) => (
                     <ThemePreviewCard
                         key={theme.id}
