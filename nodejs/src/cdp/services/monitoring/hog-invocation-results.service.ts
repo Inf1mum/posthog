@@ -369,12 +369,7 @@ export class HogInvocationResultsService {
         this.queuePreparedRow(this.prepareLifecycleRow(invocation, status, opts))
     }
 
-    /**
-     * Builds a lifecycle row without queueing it, or returns null when rows are off. The row's version, and a
-     * 'running' row's stamp of `state.firstScheduledAt`, are taken now. A caller that inserts a run before it knows
-     * whether the run starts prepares the 'running' row first, so its version is older than any row a worker writes
-     * once the job is visible, then queues it with `queuePreparedRow` only for a run that started.
-     */
+    /** Takes the row's version and 'running' stamp now, so a caller can queue it later yet keep the earlier version. */
     prepareLifecycleRow(
         invocation: CyclotronJobInvocation,
         status: HogInvocationResultStatus,

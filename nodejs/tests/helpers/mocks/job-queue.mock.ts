@@ -2,8 +2,7 @@ import { CyclotronV2IdempotentClaim } from '../../../src/cdp/services/cyclotron-
 import { IdempotentInvocation, IdempotentJobQueue } from '../../../src/cdp/services/job-queue/job-queue.interface'
 
 export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
-    // Claims behave as the cyclotron database's do: a key and its job are written together or not at all, a second
-    // claim of a key waits until the first one commits or rolls back, and a lookup sees only committed claims.
+    // Claims act like Postgres's: a key and its job commit together, a rival claim waits, a lookup sees only commits.
     const claims = new Map<string, string>()
     const claiming = new Map<string, Promise<void>>()
     const queue = {

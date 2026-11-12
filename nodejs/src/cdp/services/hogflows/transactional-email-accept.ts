@@ -229,8 +229,7 @@ export class TransactionalEmail {
         const references = send?.attachments ?? []
         const idempotencyKeys = this.deps.idempotencyKeys
         const fingerprint = transactionalEmailFingerprint(hogFlowId, parsed.data, send)
-        // Recalled before any lookup can refuse the send, so a retry of a queued send replays even after its
-        // workflow changed. The run id and the fingerprint come from the request alone.
+        // Recalled before any lookup can refuse the send, so a retry replays even after its workflow changed.
         const claim: Claim | undefined = idempotencyKey
             ? { runId: keyedRunId(teamId, RUN_SCOPE, idempotencyKey), fingerprint }
             : undefined
@@ -400,7 +399,6 @@ export class TransactionalEmail {
             await releaseKey()
             throw error
         }
-        // A request that found no claim lost a race to another with the same key, which queued the run.
         if (committed.outcome === 'replayed' && idempotencyKey) {
             // Recorded in Valkey as well, because an older pod reads only Valkey and would queue a second run.
             stages.start('idempotency')
@@ -415,10 +413,8 @@ export class TransactionalEmail {
             return { kind: 'replayed', invocationId: committed.runId, attachmentTotals }
         }
         if (committed.outcome === 'mismatch') {
-            // Another request with this key queued a different send after this one found no claim. Valkey records
-            // that send under this request's lease, because an older pod reads only Valkey: with the key freed, it
-            // would queue a second run of the other send's retry. It also refuses this request's content there.
-            // The claim returns the other send's fingerprint from its own transaction, so no later read can fail.
+            // Records the other send under this lease, so an older pod replays its retries and refuses this content.
+            // Its fingerprint comes from the claim's own transaction, so no later read can fail.
             stages.start('idempotency')
             if (committed.claimedFingerprint !== undefined && idempotencyKey) {
                 await idempotencyKeys.markQueued(

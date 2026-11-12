@@ -200,12 +200,10 @@ export class CyclotronJobConflictError extends Error {
     }
 }
 
-// A keyed request waits on this lookup before it answers, so a stalled cyclotron database must fail the lookup fast
-// instead of holding every keyed request open. The routes treat a failed lookup as unavailable, which is safe to retry.
+// Every keyed request waits on this lookup, so a stalled database must fail it fast. Routes answer that as unavailable.
 export const IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS = 1000
 
-// Rejects once the deadline passes. The operation keeps running, so its late result goes to `onLate` and a late
-// failure is dropped.
+// The operation keeps running past the deadline, so its late result goes to `onLate`.
 function beforeDeadline<T>(operation: Promise<T>, deadline: number, onLate: (value: T) => void = () => {}): Promise<T> {
     let timer: NodeJS.Timeout | undefined
     let expired = false
@@ -509,10 +507,7 @@ export class CyclotronV2Manager {
         })
     }
 
-    /**
-     * The key's claim under the same rule that keeps it from being reclaimed: unexpired, or its job still exists.
-     * Throws when the claim can't be read within the lookup budget.
-     */
+    /** The key's claim under the rule that keeps it from being reclaimed: unexpired, or its job still exists. */
     async findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null> {
         const deadline = Date.now() + this.idempotencyKeyLookupTimeoutMs
         const client = await beforeDeadline(this.pool.connect(), deadline, (late) => late.release())

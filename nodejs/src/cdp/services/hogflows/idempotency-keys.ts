@@ -19,9 +19,9 @@ const VALKEY_TIMEOUT_MS = 1000
 // Deletes the key only while it still holds this request's reservation, so a late release never frees
 // a key that another request reserved after this one expired.
 const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`
-// Records the queued run when the key is absent, still holds this request's reservation, or already records the
-// same run. The key is absent when the queue write took longer than the pending TTL, and the run is queued all the
-// same. A record of the same run is there when an earlier attempt of this write landed without its answer.
+// Records the queued run when the key is absent or still holds this request's reservation. The key is
+// absent when the queue write took longer than the pending TTL, and the run is queued all the same.
+// It also rewrites a record of the same run, which an earlier attempt can leave without its answer.
 const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) local owner = v and cjson.decode(v).invocationId if (not v) or owner == ARGV[2] or owner == ARGV[4] then redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3]) return 1 end return 0`
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250

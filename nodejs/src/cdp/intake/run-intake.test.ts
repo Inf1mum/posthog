@@ -57,7 +57,6 @@ describe('RunIntake', () => {
         invocation.id = keyedRunId(1, 'transactional-email', 'password-reset-2')
 
         const launched = intake.launch([{ invocation, claim: { fingerprint: 'request' } }], { wait: 'committed' })
-        // A worker finishes the run before the producer hears that its insert committed.
         rows.queueLifecycleRow(invocation, 'succeeded')
         returnFromInsert()
         await launched

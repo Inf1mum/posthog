@@ -1324,7 +1324,6 @@ describe('Cyclotron V2', () => {
                      VALUES ($1, 1, 'a', NOW() + interval '1 day')`,
                     [id]
                 )
-                // The claim waits on the blocker's row and holds the pool's only connection meanwhile.
                 const claim = bounded.createJobsIdempotently([
                     { job: { id, teamId: 1, queueName: QUEUE }, fingerprint: 'a' },
                 ])

@@ -7,11 +7,9 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 
 export type Run = {
     invocation: CyclotronJobInvocationHogFlow
-    // Present when the caller sent an idempotency key. The run's id is then `keyedRunId` of that key.
     claim?: { fingerprint: string }
 }
 
-// A keyed run's id and the fingerprint of the request that claims it.
 export type Claim = { runId: string; fingerprint: string }
 
 export type Recalled = { status: 'absent' } | { status: 'replayed' | 'mismatch'; runId: string }
@@ -28,7 +26,6 @@ export type RunIntakeDeps = {
 // send a second time.
 const KEYED_RUN_ID_NAMESPACE = 'c2b7f0a4-4c3e-4b8e-9d4f-6a1f3e5d2b90'
 
-/** The run id of a keyed run, the same for every retry of the key. `scope` keeps one key apart across callers. */
 export const keyedRunId = (teamId: number, scope: string, key: string): string =>
     uuidv5(JSON.stringify([teamId, scope, key]), KEYED_RUN_ID_NAMESPACE)
 
@@ -43,17 +40,14 @@ export class RunIntake {
         return { status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch', runId }
     }
 
-    // A keyed run claims its key in the job's own transaction, so a repeat creates no second job.
     async launch(runs: Run[], _options: { wait: 'committed' }): Promise<Committed[]> {
         const invocations = runs.map((run) => run.invocation)
         const rows = this.deps.invocationResultsRowsService
-        // Prepared before the insert for two reasons. Only a `firstScheduledAt` stamped before serialization reaches
-        // cyclotron. And a worker can finish the job before the insert returns here, so a version taken afterwards
-        // would outrank the terminal row and leave the run looking stuck in 'running'.
+        // Prepared before the insert: only a stamp set before serialization reaches cyclotron, and a worker can finish
+        // the job before the insert returns, so a later version would outrank its terminal row.
         const runningRows = invocations.map((invocation) => rows.prepareLifecycleRow(invocation, 'running'))
         const claims = await this.insert(runs)
-        // A repeat of a key shares its run id with the run that was created, so only the created run's row is
-        // queued, and nothing here drops rows by id.
+        // A repeat shares the created run's id, so only the created run's row is queued.
         runningRows.forEach((row, i) => {
             if (claims[i].outcome === 'created') {
                 rows.queuePreparedRow(row)

@@ -50,7 +50,6 @@ export type CyclotronV2IdempotentJobInit = {
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
-// `storedFingerprint` is the fingerprint of the claim a repeat found, read inside the claiming transaction.
 export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome; storedFingerprint?: string }
 
 export const CyclotronV2RescheduleOptionsSchema = z.object({

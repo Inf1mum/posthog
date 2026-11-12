@@ -2604,7 +2604,6 @@ describe('CDP API', () => {
                 const valkeyKey = (key: string) =>
                     `@posthog/idempotency/transactional-email/${team.id}/${createHash('sha256').update(key).digest('hex')}`
                 const valkey = () => api['transactionalEmailIdempotencyKeys']['valkey']!
-                // What a lost or expired Valkey record leaves: only the cyclotron database knows the send.
                 const forgetValkeyRecord = (key: string) =>
                     valkey().useClient({ name: 'test' }, (client) => client.del(valkeyKey(key)))
                 const jobsOfFlow = async (): Promise<string[]> =>
@@ -2701,7 +2700,6 @@ describe('CDP API', () => {
                     async (_lookup, laterLookupFails) => {
                         const sent = await sendKeyed()
                         const winner = (await claimFingerprint(sent.body.invocation_id))!
-                        // The first send's Valkey record was lost, and the reused key looked before its claim committed.
                         await forgetValkeyRecord(keyed.idempotency_key as string)
                         const lookup = jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null)
                         if (laterLookupFails) {
@@ -2712,7 +2710,6 @@ describe('CDP API', () => {
 
                         expect(res.status).toEqual(422)
                         expect(res.body).toEqual({ error: 'idempotency_key_reused' })
-                        // An older pod reads only Valkey: it must replay the queued send, not queue a second run.
                         const olderPod = api['transactionalEmailIdempotencyKeys']
                         const key = keyed.idempotency_key as string
                         expect(await olderPod.reserve(team.id, key, winner, randomUUID())).toMatchObject({
@@ -2727,7 +2724,6 @@ describe('CDP API', () => {
                     const sent = await sendKeyed()
                     const key = valkeyKey(keyed.idempotency_key as string)
                     const legacyId = new UUIDT().toString()
-                    // An older pod kept no claim, and its record holds the random id it queued.
                     await valkey().useClient({ name: 'test' }, async (client) => {
                         const stored = parseJSON((await client.get(key))!)
                         await client.set(key, JSON.stringify({ ...stored, invocationId: legacyId }), 'EX', 3600)
@@ -2745,8 +2741,7 @@ describe('CDP API', () => {
                 })
 
                 it('queues one job for two first requests with the same key that both pass Valkey', async () => {
-                    // Both reservations find the key absent, as when Valkey lost the first one, so only the claim
-                    // keeps the second request from queueing a job.
+                    // Both reservations find the key absent, so only the claim can stop a second job.
                     const useClient = valkey().useClient.bind(valkey())
                     jest.spyOn(valkey(), 'useClient').mockImplementation((options, callback) =>
                         options.name === 'idempotency-reserve' ? Promise.resolve(null) : useClient(options, callback)
@@ -3425,7 +3420,6 @@ describe('CDP API', () => {
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'field_not_accepted' })
-                // The claim lookup runs first, so a retry of a queued send replays even after its team leaves the list.
                 expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
                     auth: 1,
                     validate: 1,

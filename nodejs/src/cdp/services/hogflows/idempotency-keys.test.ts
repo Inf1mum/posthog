@@ -83,7 +83,6 @@ describe('IdempotencyKeys', () => {
 
     it('counts a late completion of a run another request already recorded as written, not as refused', async () => {
         await keys.reserve(1, key, 'request-a', 'lease-1')
-        // The first request's hold expires, a retry reserves the key, and its claim finds the run already queued.
         await valkey.useClient({ name: 'test-expire' }, (client) => client.del(keys['redisKey'](1, key)))
         await keys.reserve(1, key, 'request-a', 'lease-2')
         await keys.markQueued(1, key, 'request-a', 'run-1', 'lease-2')

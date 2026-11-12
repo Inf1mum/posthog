@@ -23,7 +23,6 @@ export interface JobQueue {
 
 export type IdempotentInvocation = { invocation: CyclotronJobInvocation; fingerprint: string }
 
-/** A queue that can claim an idempotency key in the same transaction as the job it queues. */
 export interface IdempotentJobQueue extends JobQueue {
     queueInvocationsIdempotently(entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]>
     findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null>

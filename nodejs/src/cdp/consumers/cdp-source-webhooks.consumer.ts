@@ -268,7 +268,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             template_id: hogFunction.template_id,
             team_id: hogFlow.team_id,
         })
-        // The key decides the run id, so a redelivered request can't start a second run.
         const invocationId = idempotencyKey
             ? keyedRunId(hogFlow.team_id, hogFlow.id, idempotencyKey)
             : new UUIDT().toString()
@@ -413,9 +412,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     throw error
                 }
                 if (scopedIdempotencyKey) {
-                    // Recorded in Valkey even when another request with the key claimed the run first, because an
-                    // older pod reads only Valkey and would queue a second run. The fingerprint is the workflow, so
-                    // a claim of this id can't hold another request.
+                    // Also on a replay: an older pod reads only Valkey and would queue the run again.
                     await this.idempotencyKeys.markQueued(
                         hogFlow.team_id,
                         scopedIdempotencyKey,
