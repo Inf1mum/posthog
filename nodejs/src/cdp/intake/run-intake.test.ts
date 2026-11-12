@@ -35,4 +35,36 @@ describe('RunIntake', () => {
             expect.objectContaining({ invocation_id: runId, status: 'running' }),
         ])
     })
+
+    it('versions the running row before a terminal row the run writes while its insert is still returning', async () => {
+        const kafka = createRecordingIngestionOutputs<HogInvocationResultsServiceOutput>([
+            HOG_INVOCATION_RESULTS_OUTPUT,
+        ])
+        const rows = new HogInvocationResultsService(kafka.outputs, { HOG_INVOCATION_RESULTS_ENABLED: true })
+        const queue = createMockJobQueue()
+        // The job is visible to workers once the claim commits, before the producer's await returns.
+        const claim = queue.queueInvocationsIdempotently.getMockImplementation()!
+        let returnFromInsert = (): void => {}
+        const insertReturned = new Promise<void>((resolve) => (returnFromInsert = resolve))
+        queue.queueInvocationsIdempotently.mockImplementation(async (entries) => {
+            const outcomes = await claim(entries)
+            await insertReturned
+            return outcomes
+        })
+        const intake = new RunIntake({ hogflowQueue: queue, invocationResultsRowsService: rows })
+        const hogFlow = new FixtureHogFlowBuilder().withTeamId(1).withSimpleWorkflow().build()
+        const invocation = createExampleHogFlowInvocation(hogFlow)
+        invocation.id = keyedRunId(1, 'transactional-email', 'password-reset-2')
+
+        const launched = intake.launch([{ invocation, claim: { fingerprint: 'request' } }], { wait: 'committed' })
+        // A worker finishes the run before the producer hears that its insert committed.
+        rows.queueLifecycleRow(invocation, 'succeeded')
+        returnFromInsert()
+        await launched
+        await rows.flush()
+
+        const versionOf = (status: string): bigint =>
+            BigInt(kafka.produced(HOG_INVOCATION_RESULTS_OUTPUT).find((row) => row.status === status)!.version)
+        expect(versionOf('running')).toBeLessThan(versionOf('succeeded'))
+    })
 })

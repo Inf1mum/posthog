@@ -366,25 +366,38 @@ export class HogInvocationResultsService {
             finishedAt?: Date
         } = {}
     ): void {
-        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
-            return
-        }
-
-        const row = this.buildLifecycleRow(invocation, status, opts)
-        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
-        this.queuedRows.push(row)
-        hogInvocationResultsPendingMessages.set(this.queuedRows.length)
+        this.queuePreparedRow(this.prepareLifecycleRow(invocation, status, opts))
     }
 
     /**
-     * Stamps `state.firstScheduledAt` as the run's first 'running' row would, without queueing the row. A caller
-     * that serializes the invocation before it knows whether the run starts stamps first, then queues the row only
-     * for a run that started.
+     * Builds a lifecycle row without queueing it, or returns null when rows are off. The row's version, and a
+     * 'running' row's stamp of `state.firstScheduledAt`, are taken now. A caller that inserts a run before it knows
+     * whether the run starts prepares the 'running' row first, so its version is older than any row a worker writes
+     * once the job is visible, then queues it with `queuePreparedRow` only for a run that started.
      */
-    stampFirstScheduledAt(invocation: CyclotronJobInvocation): void {
-        if (this.config.HOG_INVOCATION_RESULTS_ENABLED) {
-            this.stampedFirstScheduledAt(invocation, new Date())
+    prepareLifecycleRow(
+        invocation: CyclotronJobInvocation,
+        status: HogInvocationResultStatus,
+        opts: {
+            error?: unknown
+            errorKind?: string
+            startedAt?: Date
+            finishedAt?: Date
+        } = {}
+    ): HogInvocationResultRow | null {
+        if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return null
         }
+        return this.buildLifecycleRow(invocation, status, opts)
+    }
+
+    queuePreparedRow(row: HogInvocationResultRow | null): void {
+        if (!row) {
+            return
+        }
+        counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
+        this.queuedRows.push(row)
+        hogInvocationResultsPendingMessages.set(this.queuedRows.length)
     }
 
     // `firstScheduledAt` records the original cyclotron-scheduled time. The

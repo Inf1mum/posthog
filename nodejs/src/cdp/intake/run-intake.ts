@@ -51,15 +51,16 @@ export class RunIntake {
     async launch(runs: Run[], _options: { wait: 'committed' }): Promise<Committed[]> {
         const invocations = runs.map((run) => run.invocation)
         const rows = this.deps.invocationResultsRowsService
-        // Stamped before the insert serializes the invocations, because only a stamp set before serialization
-        // reaches cyclotron.
-        invocations.forEach((invocation) => rows.stampFirstScheduledAt(invocation))
+        // Prepared before the insert for two reasons. Only a `firstScheduledAt` stamped before serialization reaches
+        // cyclotron. And a worker can finish the job before the insert returns here, so a version taken afterwards
+        // would outrank the terminal row and leave the run looking stuck in 'running'.
+        const runningRows = invocations.map((invocation) => rows.prepareLifecycleRow(invocation, 'running'))
         const outcomes = await this.insert(runs)
-        // A repeat of a key shares its run id with the run that was created, so only the created run gets a
-        // 'running' row, and nothing here drops rows by id.
-        invocations.forEach((invocation, i) => {
+        // A repeat of a key shares its run id with the run that was created, so only the created run's row is
+        // queued, and nothing here drops rows by id.
+        runningRows.forEach((row, i) => {
             if (outcomes[i] === 'created') {
-                rows.queueLifecycleRow(invocation, 'running')
+                rows.queuePreparedRow(row)
             }
         })
         return invocations.map((invocation, i) => ({ runId: invocation.id, outcome: outcomes[i] }))
