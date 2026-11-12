@@ -6,7 +6,7 @@ import { AddressInfo, Socket, connect, createServer as createTcpServer } from 'n
 import { FakeSes, FakeSesAttachment } from '~/cdp/_tests/fake-ses'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
-import { CyclotronV2IdempotentOutcome } from '~/cdp/services/cyclotron-v2/types'
+import { CyclotronV2IdempotentClaim } from '~/cdp/services/cyclotron-v2/types'
 import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { IdempotentInvocation } from '~/cdp/services/job-queue/job-queue.interface'
 import { AttachmentStore, buildAttachmentStore } from '~/cdp/services/messaging/attachment-store'
@@ -210,7 +210,7 @@ export class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
 
     public override queueInvocationsIdempotently(
         entries: IdempotentInvocation[]
-    ): Promise<CyclotronV2IdempotentOutcome[]> {
+    ): Promise<CyclotronV2IdempotentClaim[]> {
         return super.queueInvocationsIdempotently(
             entries.map((entry) => ({ ...entry, invocation: this.onOwnQueue(entry.invocation) }))
         )

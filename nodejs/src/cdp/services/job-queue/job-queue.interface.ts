@@ -1,6 +1,6 @@
 import { HealthCheckResult } from '../../../types'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { CyclotronV2IdempotentOutcome } from '../cyclotron-v2/types'
+import { CyclotronV2IdempotentClaim } from '../cyclotron-v2/types'
 
 export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
@@ -25,6 +25,6 @@ export type IdempotentInvocation = { invocation: CyclotronJobInvocation; fingerp
 
 /** A queue that can claim an idempotency key in the same transaction as the job it queues. */
 export interface IdempotentJobQueue extends JobQueue {
-    queueInvocationsIdempotently(entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentOutcome[]>
+    queueInvocationsIdempotently(entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]>
     findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null>
 }

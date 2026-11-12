@@ -14,6 +14,7 @@ import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
     CyclotronV2CancelJobsResult,
+    CyclotronV2IdempotentClaim,
     CyclotronV2IdempotentJobInit,
     CyclotronV2IdempotentOutcome,
     CyclotronV2InFlightCounts,
@@ -374,6 +375,10 @@ export class CyclotronV2Manager {
 
     /** Writes each job and its idempotency key in one transaction, so a failure leaves neither. */
     async createJobsIdempotently(inputs: CyclotronV2IdempotentJobInit[]): Promise<CyclotronV2IdempotentOutcome[]> {
+        return (await this.claimJobs(inputs)).map(({ outcome }) => outcome)
+    }
+
+    async claimJobs(inputs: CyclotronV2IdempotentJobInit[]): Promise<CyclotronV2IdempotentClaim[]> {
         if (inputs.length === 0) {
             return []
         }
@@ -469,13 +474,14 @@ export class CyclotronV2Manager {
 
         return inputs.map(({ job, fingerprint }) => {
             const id = job.id.toLowerCase()
-            const outcome: CyclotronV2IdempotentOutcome = claimedIds.has(id)
-                ? 'created'
-                : storedFingerprints.get(id) === fingerprint
-                  ? 'replayed'
-                  : 'mismatch'
+            if (claimedIds.has(id)) {
+                idempotentInsertsCounter.labels({ outcome: 'created' }).inc()
+                return { outcome: 'created' }
+            }
+            const storedFingerprint = storedFingerprints.get(id)
+            const outcome: CyclotronV2IdempotentOutcome = storedFingerprint === fingerprint ? 'replayed' : 'mismatch'
             idempotentInsertsCounter.labels({ outcome }).inc()
-            return outcome
+            return { outcome, storedFingerprint }
         })
     }
 

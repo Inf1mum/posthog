@@ -1,6 +1,6 @@
 import { v5 as uuidv5 } from 'uuid'
 
-import { CyclotronV2IdempotentOutcome } from '~/cdp/services/cyclotron-v2/types'
+import { CyclotronV2IdempotentClaim } from '~/cdp/services/cyclotron-v2/types'
 import { IdempotentJobQueue } from '~/cdp/services/job-queue/job-queue.interface'
 import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
@@ -16,7 +16,8 @@ export type Claim = { runId: string; fingerprint: string }
 
 export type Recalled = { status: 'absent' } | { status: 'replayed' | 'mismatch'; runId: string }
 
-export type Committed = { runId: string; outcome: CyclotronV2IdempotentOutcome }
+// `claimedFingerprint` is set when a keyed run found an existing claim: the fingerprint of the request that made it.
+export type Committed = { runId: string; outcome: CyclotronV2IdempotentClaim['outcome']; claimedFingerprint?: string }
 
 export type RunIntakeDeps = {
     hogflowQueue: IdempotentJobQueue
@@ -35,16 +36,11 @@ export class RunIntake {
     constructor(private deps: RunIntakeDeps) {}
 
     async recall({ runId, fingerprint }: Claim): Promise<Recalled> {
-        const claimed = await this.claimedFingerprint(runId)
+        const claimed = await this.deps.hogflowQueue.findIdempotencyKey(runId)
         if (claimed === null) {
             return { status: 'absent' }
         }
-        return { status: claimed === fingerprint ? 'replayed' : 'mismatch', runId }
-    }
-
-    /** The fingerprint of the request that claimed this run, or null when no claim holds it. */
-    async claimedFingerprint(runId: string): Promise<string | null> {
-        return (await this.deps.hogflowQueue.findIdempotencyKey(runId))?.fingerprint ?? null
+        return { status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch', runId }
     }
 
     // A keyed run claims its key in the job's own transaction, so a repeat creates no second job.
@@ -55,19 +51,23 @@ export class RunIntake {
         // cyclotron. And a worker can finish the job before the insert returns here, so a version taken afterwards
         // would outrank the terminal row and leave the run looking stuck in 'running'.
         const runningRows = invocations.map((invocation) => rows.prepareLifecycleRow(invocation, 'running'))
-        const outcomes = await this.insert(runs)
+        const claims = await this.insert(runs)
         // A repeat of a key shares its run id with the run that was created, so only the created run's row is
         // queued, and nothing here drops rows by id.
         runningRows.forEach((row, i) => {
-            if (outcomes[i] === 'created') {
+            if (claims[i].outcome === 'created') {
                 rows.queuePreparedRow(row)
             }
         })
-        return invocations.map((invocation, i) => ({ runId: invocation.id, outcome: outcomes[i] }))
+        return invocations.map((invocation, i) => ({
+            runId: invocation.id,
+            outcome: claims[i].outcome,
+            claimedFingerprint: claims[i].storedFingerprint,
+        }))
     }
 
-    private async insert(runs: Run[]): Promise<CyclotronV2IdempotentOutcome[]> {
-        const outcomes: CyclotronV2IdempotentOutcome[] = runs.map(() => 'created')
+    private async insert(runs: Run[]): Promise<CyclotronV2IdempotentClaim[]> {
+        const claims: CyclotronV2IdempotentClaim[] = runs.map(() => ({ outcome: 'created' }))
         const keyed = runs.flatMap((run, i) => (run.claim ? [{ i, fingerprint: run.claim.fingerprint }] : []))
         const keyless = runs.filter((run) => !run.claim).map((run) => run.invocation)
         if (keyless.length > 0) {
@@ -77,8 +77,8 @@ export class RunIntake {
             const claimed = await this.deps.hogflowQueue.queueInvocationsIdempotently(
                 keyed.map(({ i, fingerprint }) => ({ invocation: runs[i].invocation, fingerprint }))
             )
-            keyed.forEach(({ i }, k) => (outcomes[i] = claimed[k]))
+            keyed.forEach(({ i }, k) => (claims[i] = claimed[k]))
         }
-        return outcomes
+        return claims
     }
 }

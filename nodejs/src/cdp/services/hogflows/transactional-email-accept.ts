@@ -418,10 +418,16 @@ export class TransactionalEmail {
             // Another request with this key queued a different send after this one found no claim. Valkey records
             // that send under this request's lease, because an older pod reads only Valkey: with the key freed, it
             // would queue a second run of the other send's retry. It also refuses this request's content there.
+            // The claim returns the other send's fingerprint from its own transaction, so no later read can fail.
             stages.start('idempotency')
-            const claimed = await this.deps.runIntake.claimedFingerprint(committed.runId).catch(() => null)
-            if (claimed !== null && idempotencyKey) {
-                await idempotencyKeys.markQueued(team.id, idempotencyKey, claimed, committed.runId, leaseToken)
+            if (committed.claimedFingerprint !== undefined && idempotencyKey) {
+                await idempotencyKeys.markQueued(
+                    team.id,
+                    idempotencyKey,
+                    committed.claimedFingerprint,
+                    committed.runId,
+                    leaseToken
+                )
             } else {
                 await releaseKey()
             }

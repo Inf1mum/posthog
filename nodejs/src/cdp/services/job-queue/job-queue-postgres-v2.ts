@@ -12,7 +12,7 @@ import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
-import { CyclotronV2IdempotentOutcome, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
+import { CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -280,14 +280,12 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         }
     }
 
-    public async queueInvocationsIdempotently(
-        entries: IdempotentInvocation[]
-    ): Promise<CyclotronV2IdempotentOutcome[]> {
+    public async queueInvocationsIdempotently(entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]> {
         if (!this.manager) {
             throw new Error('CyclotronV2Manager not initialized')
         }
         const invocations = this.sanitizer.sanitizeInvocations(entries.map((entry) => entry.invocation))
-        return await this.manager.createJobsIdempotently(
+        return await this.manager.claimJobs(
             invocations.map((invocation, i) => ({
                 job: invocationToV2JobInit(invocation),
                 fingerprint: entries[i].fingerprint,

@@ -2681,26 +2681,35 @@ describe('CDP API', () => {
                     expect(await jobsOfFlow()).toHaveLength(1)
                 })
 
-                it('records the queued send in Valkey when a reused key finds it only at the claim', async () => {
-                    const sent = await sendKeyed()
-                    const winner = (await claimFingerprint(sent.body.invocation_id))!
-                    // The first send's Valkey record was lost, and the reused key looked before its claim committed.
-                    await forgetValkeyRecord(keyed.idempotency_key as string)
-                    jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null)
+                it.each([
+                    ['answers', false],
+                    ['fails', true],
+                ])(
+                    'records the queued send in Valkey when a reused key finds it only at the claim and a later claim lookup %s',
+                    async (_lookup, laterLookupFails) => {
+                        const sent = await sendKeyed()
+                        const winner = (await claimFingerprint(sent.body.invocation_id))!
+                        // The first send's Valkey record was lost, and the reused key looked before its claim committed.
+                        await forgetValkeyRecord(keyed.idempotency_key as string)
+                        const lookup = jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null)
+                        if (laterLookupFails) {
+                            lookup.mockRejectedValueOnce(new Error('cyclotron database down'))
+                        }
 
-                    const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
+                        const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
 
-                    expect(res.status).toEqual(422)
-                    expect(res.body).toEqual({ error: 'idempotency_key_reused' })
-                    // An older pod reads only Valkey: it must replay the queued send, not queue a second run.
-                    const olderPod = api['transactionalEmailIdempotencyKeys']
-                    const key = keyed.idempotency_key as string
-                    expect(await olderPod.reserve(team.id, key, winner, randomUUID())).toMatchObject({
-                        status: 'replayed',
-                        invocationId: sent.body.invocation_id,
-                    })
-                    expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
-                })
+                        expect(res.status).toEqual(422)
+                        expect(res.body).toEqual({ error: 'idempotency_key_reused' })
+                        // An older pod reads only Valkey: it must replay the queued send, not queue a second run.
+                        const olderPod = api['transactionalEmailIdempotencyKeys']
+                        const key = keyed.idempotency_key as string
+                        expect(await olderPod.reserve(team.id, key, winner, randomUUID())).toMatchObject({
+                            status: 'replayed',
+                            invocationId: sent.body.invocation_id,
+                        })
+                        expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    }
+                )
 
                 it('replays the id an older pod queued and recorded only in Valkey', async () => {
                     const sent = await sendKeyed()

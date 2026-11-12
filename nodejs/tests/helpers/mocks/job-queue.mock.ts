@@ -1,4 +1,4 @@
-import { CyclotronV2IdempotentOutcome } from '../../../src/cdp/services/cyclotron-v2/types'
+import { CyclotronV2IdempotentClaim } from '../../../src/cdp/services/cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from '../../../src/cdp/services/job-queue/job-queue.interface'
 
 export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
@@ -19,15 +19,18 @@ export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
         heartbeatInvocations: jest.fn().mockResolvedValue(undefined),
         deferInvocations: jest.fn().mockResolvedValue(undefined),
         queueInvocationsIdempotently: jest.fn(
-            async (entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentOutcome[]> => {
-                const outcomes: CyclotronV2IdempotentOutcome[] = []
+            async (entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]> => {
+                const outcomes: CyclotronV2IdempotentClaim[] = []
                 for (const { invocation, fingerprint } of entries) {
                     while (claiming.has(invocation.id)) {
                         await claiming.get(invocation.id)
                     }
                     const stored = claims.get(invocation.id)
                     if (stored !== undefined) {
-                        outcomes.push(stored === fingerprint ? 'replayed' : 'mismatch')
+                        outcomes.push({
+                            outcome: stored === fingerprint ? 'replayed' : 'mismatch',
+                            storedFingerprint: stored,
+                        })
                         continue
                     }
                     let settle = (): void => {}
@@ -39,7 +42,7 @@ export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
                         claiming.delete(invocation.id)
                         settle()
                     }
-                    outcomes.push('created')
+                    outcomes.push({ outcome: 'created' })
                 }
                 return outcomes
             }
