@@ -24,7 +24,9 @@ function sourceLabel(source: string): string {
 export function WorkflowImportNotesBanner({ id }: { id: string }): JSX.Element | null {
     const { importRecord, loadFailed } = useValues(workflowImportNotesLogic({ id }))
     const { loadImportRecord } = useActions(workflowImportNotesLogic({ id }))
-    const importEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
+    const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
+    const resendImportEnabled = useFeatureFlag('WORKFLOWS_RESEND_IMPORT')
+    const importEnabled = customerioImportEnabled || resendImportEnabled
     const [expanded, setExpanded] = useState(false)
 
     // Most workflows were never imported, so a failed lookup only warns people who can import.
