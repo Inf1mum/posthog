@@ -13,6 +13,7 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
 
+import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
@@ -2679,6 +2680,29 @@ describe('CDP API', () => {
                     expect(res.status).toEqual(503)
                     expect(res.body).toEqual({ error: 'idempotency_unavailable' })
                     expect(await jobsOfFlow()).toEqual([])
+                })
+
+                it('answers 503 and queues nothing while a stalled pod holds the claim uncommitted', async () => {
+                    const runId = keyedRunId(team.id, 'transactional-email', keyed.idempotency_key as string)
+                    const stalledPod = await cyclotron.connect()
+                    await stalledPod.query('BEGIN')
+                    await stalledPod.query(
+                        `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                         VALUES ($1, $2, 'a', NOW() + interval '1 day')`,
+                        [runId, team.id]
+                    )
+                    try {
+                        const res = await sendKeyed()
+
+                        expect(res.status).toEqual(503)
+                        expect(res.body).toEqual({ error: 'idempotency_unavailable' })
+                    } finally {
+                        await stalledPod.query('ROLLBACK')
+                        stalledPod.release()
+                    }
+
+                    expect(await jobsOfFlow()).toEqual([])
+                    expect((await sendKeyed()).status).toEqual(202)
                 })
 
                 it('rejects a reused key from the cyclotron database once Valkey has lost the send', async () => {

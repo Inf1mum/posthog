@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { isLockTimeout } from '~/cdp/services/cyclotron-v2/manager'
 import { InvocationResultsService } from '~/cdp/services/invocation-results.service'
 import { GroupsManagerService, GroupsMap } from '~/cdp/services/managers/groups-manager.service'
 import { PersonsManagerService } from '~/cdp/services/managers/persons-manager.service'
@@ -397,6 +398,9 @@ export class TransactionalEmail {
             committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
         } catch (error) {
             await releaseKey()
+            if (isLockTimeout(error)) {
+                return { kind: 'unavailable' }
+            }
             throw error
         }
         if (committed.outcome === 'replayed' && idempotencyKey) {

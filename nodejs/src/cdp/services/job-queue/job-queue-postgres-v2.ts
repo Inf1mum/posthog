@@ -12,6 +12,7 @@ import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
+import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
@@ -289,7 +290,8 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             invocations.map((invocation, i) => ({
                 job: invocationToV2JobInit(invocation),
                 fingerprint: entries[i].fingerprint,
-            }))
+            })),
+            { lockTimeoutMs: IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS }
         )
     }
 

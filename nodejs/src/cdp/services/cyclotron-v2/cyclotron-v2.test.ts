@@ -1261,6 +1261,32 @@ describe('Cyclotron V2', () => {
                     ['replayed', 'replayed'],
                 ])
             })
+
+            it('gives up a claim held by an uncommitted claim past its lock timeout, writing neither key nor job', async () => {
+                const id = uuidv7()
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query(
+                    `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                     VALUES ($1, 1, 'a', NOW() + interval '1 day')`,
+                    [id]
+                )
+                try {
+                    const started = Date.now()
+                    await expect(manager.claimJobs([keyed(id, 'a')], { lockTimeoutMs: 200 })).rejects.toThrow()
+                    expect(Date.now() - started).toBeLessThan(1000)
+                    expect(await backendsWaitingOnLocks()).toBe(0)
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                }
+
+                expect(await manager.findIdempotencyKey(id)).toBeNull()
+                expect(await totalJobCount()).toBe(0)
+                expect(await manager.claimJobs([keyed(id, 'a')], { lockTimeoutMs: 200 })).toEqual([
+                    { outcome: 'created' },
+                ])
+            }, 5000)
         })
 
         describe('findIdempotencyKey under a stalled database', () => {

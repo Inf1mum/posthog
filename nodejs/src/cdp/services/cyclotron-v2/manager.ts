@@ -203,6 +203,12 @@ export class CyclotronJobConflictError extends Error {
 // Every keyed request waits on this lookup, so a stalled database must fail it fast. Routes answer that as unavailable.
 export const IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS = 1000
 
+// A pod that stalls mid-claim holds its key's row lock, so a retry's claim must give up rather than hold a connection.
+export const IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS = 1000
+
+export const isLockTimeout = (error: unknown): boolean =>
+    typeof error === 'object' && error !== null && 'code' in error && error.code === '55P03'
+
 // The operation keeps running past the deadline, so its late result goes to `onLate`.
 function beforeDeadline<T>(operation: Promise<T>, deadline: number, onLate: (value: T) => void = () => {}): Promise<T> {
     let timer: NodeJS.Timeout | undefined
@@ -400,7 +406,10 @@ export class CyclotronV2Manager {
         return (await this.claimJobs(inputs)).map(({ outcome }) => outcome)
     }
 
-    async claimJobs(inputs: CyclotronV2IdempotentJobInit[]): Promise<CyclotronV2IdempotentClaim[]> {
+    async claimJobs(
+        inputs: CyclotronV2IdempotentJobInit[],
+        { lockTimeoutMs }: { lockTimeoutMs?: number } = {}
+    ): Promise<CyclotronV2IdempotentClaim[]> {
         if (inputs.length === 0) {
             return []
         }
@@ -431,6 +440,9 @@ export class CyclotronV2Manager {
         const storedFingerprints = new Map<string, string>()
         try {
             await client.query('BEGIN')
+            if (lockTimeoutMs !== undefined) {
+                await client.query(`SET LOCAL lock_timeout = ${Math.max(1, Math.floor(lockTimeoutMs))}`)
+            }
 
             // Reclaims an expired key only once its job is gone, because the job id is a primary key.
             const claimed = await client.query<{ id: string }>(
