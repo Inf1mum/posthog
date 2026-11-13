@@ -94,8 +94,7 @@ FIND_REPLAY_WRAPPER_JS = f"""(
 READ_SITE_STYLE_JS = f"""
     const doc = {FIND_REPLAY_WRAPPER_JS}?.querySelector('iframe')?.contentDocument;
     const view = doc?.defaultView;
-    // A stylesheet the replay could not fetch leaves the page in browser defaults, which are not the site's colors.
-    if (!doc?.body || !view || [...doc.querySelectorAll('link[rel="stylesheet"]')].some((link) => !link.sheet)) {{
+    if (!doc?.body || !view) {{
         return null;
     }}
     const canvas = document.createElement('canvas');
@@ -125,10 +124,11 @@ READ_SITE_STYLE_JS = f"""
         const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
         return (lighter + 0.05) / (darker + 0.05);
     }};
+    const CANVAS = 'white';
     const surfaceByElement = new Map();
     const surfaceBehind = (element) => {{
         const unresolved = [];
-        let surface = 'white';
+        let surface = CANVAS;
         for (; element; element = element.parentElement) {{
             if (surfaceByElement.has(element)) {{
                 surface = surfaceByElement.get(element);
@@ -148,6 +148,12 @@ READ_SITE_STYLE_JS = f"""
     // Below short content the hit is <html>, which paints nothing itself. The body's background fills the canvas.
     const hit = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2);
     const center = !hit || hit === doc.documentElement ? doc.body : hit;
+    const background = surfaceBehind(center);
+    const text = view.getComputedStyle(center).color;
+    // A stylesheet the replay could not fetch leaves browser defaults, and a cross-origin sheet hides whether it loaded.
+    if (background === CANVAS && hex(text) === '#000000') {{
+        return null;
+    }}
     let button = null;
     let buttonWeight = 0;
     for (const element of doc.querySelectorAll('button, a, input[type="submit"], input[type="button"], [role="button"]')) {{
@@ -171,8 +177,8 @@ READ_SITE_STYLE_JS = f"""
         }}
     }}
     return {{
-        background_color: hex(surfaceBehind(center)),
-        text_color: hex(view.getComputedStyle(center).color),
+        background_color: hex(background),
+        text_color: hex(text),
         button_color: button && hex(button.backgroundColor),
         button_text_color: button && hex(button.color),
         button_border_radius: button && Math.round(parseFloat(button.borderTopLeftRadius) || 0),
