@@ -94,7 +94,8 @@ FIND_REPLAY_WRAPPER_JS = f"""(
 READ_SITE_STYLE_JS = f"""
     const doc = {FIND_REPLAY_WRAPPER_JS}?.querySelector('iframe')?.contentDocument;
     const view = doc?.defaultView;
-    if (!doc?.body || !view) {{
+    // A stylesheet the replay could not fetch leaves the page in browser defaults, which are not the site's colors.
+    if (!doc?.body || !view || [...doc.querySelectorAll('link[rel="stylesheet"]')].some((link) => !link.sheet)) {{
         return null;
     }}
     const canvas = document.createElement('canvas');
