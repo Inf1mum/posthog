@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { IconBrowser } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NewSurvey, SurveyTheme } from 'scenes/surveys/constants'
 import { ThemePreviewCard } from 'scenes/surveys/wizard/SurveyThemeSelector'
 
@@ -100,8 +102,9 @@ function LoadedSiteThemeCard({
 
 export function SiteThemeCard(props: SiteThemeCardProps): JSX.Element | null {
     const [requested, setRequested] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!rendersOnSite(props.survey)) {
+    if (!featureFlags[FEATURE_FLAGS.SURVEYS_MATCH_MY_SITE] || !rendersOnSite(props.survey)) {
         return null
     }
     return requested ? (
